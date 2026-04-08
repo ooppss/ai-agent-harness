@@ -31,22 +31,33 @@ public final class DaemonRunner {
     }
 
     public void runOnce() {
+        runOnceForResult();
+    }
+
+    public RunCycleResult runOnceForResult() {
         Optional<Path> mountPath = deviceEventListener.awaitNextMountPath();
         if (mountPath.isEmpty()) {
             errorLogger.logFailure("No mount path resolved for ingest cycle");
-            return;
+            return new RunCycleResult(Optional.empty(), Optional.empty(), Optional.empty());
         }
 
         ScanResult scanResult = pcapScanner.scan(mountPath.get());
         if (!scanResult.isSuccessful()) {
             errorLogger.logScanFailure(scanResult.getTargetPath(), scanResult.getDetailMessage());
             daemonLogger.logShutdown();
-            return;
+            return new RunCycleResult(mountPath, Optional.of(scanResult), Optional.empty());
         }
         IngestUploader.UploadBatchResult uploadBatchResult = ingestUploader.upload(scanResult);
         if (!uploadBatchResult.isSuccessful()) {
             errorLogger.logFailure("Upload batch completed with failures: " + uploadBatchResult.detailMessage());
         }
         daemonLogger.logShutdown();
+        return new RunCycleResult(mountPath, Optional.of(scanResult), Optional.of(uploadBatchResult));
+    }
+
+    public record RunCycleResult(
+            Optional<Path> mountPath,
+            Optional<ScanResult> scanResult,
+            Optional<IngestUploader.UploadBatchResult> uploadBatchResult) {
     }
 }

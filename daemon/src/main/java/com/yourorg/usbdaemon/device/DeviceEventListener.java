@@ -13,20 +13,39 @@ import java.util.Map;
 import java.util.Optional;
 
 public final class DeviceEventListener {
+    @FunctionalInterface
+    public interface MountPathAwaiter {
+        Optional<Path> awaitNextMountPath();
+    }
+
     private final MountPathResolver mountPathResolver;
     private final DaemonLogger daemonLogger;
     private final ErrorLogger errorLogger;
+    private final MountPathAwaiter mountPathAwaiter;
 
     public DeviceEventListener(
             MountPathResolver mountPathResolver,
             DaemonLogger daemonLogger,
             ErrorLogger errorLogger) {
+        this(mountPathResolver, daemonLogger, errorLogger, null);
+    }
+
+    public DeviceEventListener(
+            MountPathResolver mountPathResolver,
+            DaemonLogger daemonLogger,
+            ErrorLogger errorLogger,
+            MountPathAwaiter mountPathAwaiter) {
         this.mountPathResolver = mountPathResolver;
         this.daemonLogger = daemonLogger;
         this.errorLogger = errorLogger;
+        this.mountPathAwaiter = mountPathAwaiter;
     }
 
     public Optional<Path> awaitNextMountPath() {
+        if (mountPathAwaiter != null) {
+            return mountPathAwaiter.awaitNextMountPath();
+        }
+
         Optional<Path> mountPath = mountPathResolver.resolveConfiguredMountPath();
         if (mountPath.isPresent()) {
             daemonLogger.logMountPathResolved("configured-path", mountPath.get());
