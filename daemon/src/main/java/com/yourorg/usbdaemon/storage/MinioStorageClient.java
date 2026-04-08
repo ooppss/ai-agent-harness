@@ -13,19 +13,36 @@ import java.nio.file.Path;
 import java.util.Objects;
 
 public final class MinioStorageClient {
+    interface MinioGateway {
+        boolean bucketExists(String bucket) throws Exception;
+
+        boolean objectExists(String bucket, String objectKey) throws Exception;
+
+        WriteResult upload(Path sourceFile, String bucket, String objectKey) throws Exception;
+    }
+
+    record WriteResult(String etag, String versionId) {
+    }
+
     private final AppConfig config;
-    private final MinioClient minioClient;
+    private final MinioGateway minioGateway;
 
     public MinioStorageClient(AppConfig config) {
-        this(config, MinioClient.builder()
+        this(
+                config,
+                MinioClient.builder()
                 .endpoint(config.getMinioEndpoint())
                 .credentials(config.getMinioAccessKey(), config.getMinioSecretKey())
                 .build());
     }
 
     MinioStorageClient(AppConfig config, MinioClient minioClient) {
+        this(config, new SdkMinioGateway(Objects.requireNonNull(minioClient, "minioClient")));
+    }
+
+    MinioStorageClient(AppConfig config, MinioGateway minioGateway) {
         this.config = Objects.requireNonNull(config, "config");
-        this.minioClient = Objects.requireNonNull(minioClient, "minioClient");
+        this.minioGateway = Objects.requireNonNull(minioGateway, "minioGateway");
     }
 
     public StorageResponse upload(Path sourceFile, String bucket, String objectKey) {
@@ -54,13 +71,7 @@ public final class MinioStorageClient {
                         null);
             }
 
-            ObjectWriteResponse response = minioClient.uploadObject(
-                    UploadObjectArgs.builder()
-                            .bucket(bucket)
-                            .object(objectKey)
-                            .filename(sourceFile.toString())
-                            .contentType("application/octet-stream")
-                            .build());
+            WriteResult response = minioGateway.upload(sourceFile, bucket, objectKey);
 
             return new StorageResponse(
                     bucket,
@@ -81,24 +92,11 @@ public final class MinioStorageClient {
     }
 
     public boolean bucketExists(String bucket) throws Exception {
-        return minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucket).build());
+        return minioGateway.bucketExists(bucket);
     }
 
     public boolean objectExists(String bucket, String objectKey) throws Exception {
-        try {
-            minioClient.statObject(
-                    StatObjectArgs.builder()
-                            .bucket(bucket)
-                            .object(objectKey)
-                            .build());
-            return true;
-        } catch (ErrorResponseException exception) {
-            String errorCode = exception.errorResponse().code();
-            if ("NoSuchKey".equals(errorCode) || "NoSuchObject".equals(errorCode)) {
-                return false;
-            }
-            throw exception;
-        }
+        return minioGateway.objectExists(bucket, objectKey);
     }
 
     public enum StorageStatus {
@@ -124,6 +122,49 @@ public final class MinioStorageClient {
 
         public boolean isFailure() {
             return status == StorageStatus.FAILURE;
+        }
+    }
+
+    private static final class SdkMinioGateway implements MinioGateway {
+        private final MinioClient minioClient;
+
+        private SdkMinioGateway(MinioClient minioClient) {
+            this.minioClient = minioClient;
+        }
+
+        @Override
+        public boolean bucketExists(String bucket) throws Exception {
+            return minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucket).build());
+        }
+
+        @Override
+        public boolean objectExists(String bucket, String objectKey) throws Exception {
+            try {
+                minioClient.statObject(
+                        StatObjectArgs.builder()
+                                .bucket(bucket)
+                                .object(objectKey)
+                                .build());
+                return true;
+            } catch (ErrorResponseException exception) {
+                String errorCode = exception.errorResponse().code();
+                if ("NoSuchKey".equals(errorCode) || "NoSuchObject".equals(errorCode)) {
+                    return false;
+                }
+                throw exception;
+            }
+        }
+
+        @Override
+        public WriteResult upload(Path sourceFile, String bucket, String objectKey) throws Exception {
+            ObjectWriteResponse response = minioClient.uploadObject(
+                    UploadObjectArgs.builder()
+                            .bucket(bucket)
+                            .object(objectKey)
+                            .filename(sourceFile.toString())
+                            .contentType("application/octet-stream")
+                            .build());
+            return new WriteResult(response.etag(), response.versionId());
         }
     }
 }
