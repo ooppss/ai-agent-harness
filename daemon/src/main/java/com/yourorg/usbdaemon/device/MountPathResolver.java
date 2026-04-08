@@ -113,8 +113,16 @@ public final class MountPathResolver {
     }
 
     private List<MountEntry> readMountInfoEntries() throws IOException {
+        return parseMountInfoLines(Files.readAllLines(PROC_MOUNTINFO, StandardCharsets.UTF_8));
+    }
+
+    private List<MountEntry> readProcMountEntries() throws IOException {
+        return parseProcMountLines(Files.readAllLines(PROC_MOUNTS, StandardCharsets.UTF_8));
+    }
+
+    static List<MountEntry> parseMountInfoLines(List<String> lines) {
         List<MountEntry> entries = new ArrayList<>();
-        for (String line : Files.readAllLines(PROC_MOUNTINFO, StandardCharsets.UTF_8)) {
+        for (String line : lines) {
             String[] separatorSplit = line.split(" - ", 2);
             if (separatorSplit.length != 2) {
                 continue;
@@ -133,9 +141,9 @@ public final class MountPathResolver {
         return List.copyOf(entries);
     }
 
-    private List<MountEntry> readProcMountEntries() throws IOException {
+    static List<MountEntry> parseProcMountLines(List<String> lines) {
         List<MountEntry> entries = new ArrayList<>();
-        for (String line : Files.readAllLines(PROC_MOUNTS, StandardCharsets.UTF_8)) {
+        for (String line : lines) {
             String[] tokens = line.split(" ");
             if (tokens.length < 2) {
                 continue;
@@ -159,7 +167,7 @@ public final class MountPathResolver {
         return Files.isDirectory(path);
     }
 
-    private String decodeMountToken(String token) {
+    static String decodeMountToken(String token) {
         return token
                 .replace("\\040", " ")
                 .replace("\\011", "\t")

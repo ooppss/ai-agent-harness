@@ -19,6 +19,99 @@ public final class DeviceEventListener {
         Optional<String> awaitNextDeviceName();
     }
 
+    @FunctionalInterface
+    interface OsDetector {
+        boolean isLinux();
+    }
+
+    @FunctionalInterface
+    interface Sleeper {
+        void sleep(long millis) throws InterruptedException;
+    }
+
+    interface LibUdevFacade {
+        Pointer udevNew();
+
+        Pointer udevUnref(Pointer udev);
+
+        Pointer monitorNewFromNetlink(Pointer udev, String name);
+
+        int monitorFilterAddMatchSubsystemDevtype(Pointer monitor, String subsystem, String devtype);
+
+        int monitorEnableReceiving(Pointer monitor);
+
+        Pointer monitorReceiveDevice(Pointer monitor);
+
+        Pointer monitorUnref(Pointer monitor);
+
+        String deviceGetAction(Pointer device);
+
+        String deviceGetDevnode(Pointer device);
+
+        String deviceGetPropertyValue(Pointer device, String key);
+
+        Pointer deviceUnref(Pointer device);
+
+        static LibUdevFacade nativeFacade() {
+            return new LibUdevFacade() {
+                @Override
+                public Pointer udevNew() {
+                    return LibUdev.INSTANCE.udev_new();
+                }
+
+                @Override
+                public Pointer udevUnref(Pointer udev) {
+                    return LibUdev.INSTANCE.udev_unref(udev);
+                }
+
+                @Override
+                public Pointer monitorNewFromNetlink(Pointer udev, String name) {
+                    return LibUdev.INSTANCE.udev_monitor_new_from_netlink(udev, name);
+                }
+
+                @Override
+                public int monitorFilterAddMatchSubsystemDevtype(Pointer monitor, String subsystem, String devtype) {
+                    return LibUdev.INSTANCE.udev_monitor_filter_add_match_subsystem_devtype(monitor, subsystem, devtype);
+                }
+
+                @Override
+                public int monitorEnableReceiving(Pointer monitor) {
+                    return LibUdev.INSTANCE.udev_monitor_enable_receiving(monitor);
+                }
+
+                @Override
+                public Pointer monitorReceiveDevice(Pointer monitor) {
+                    return LibUdev.INSTANCE.udev_monitor_receive_device(monitor);
+                }
+
+                @Override
+                public Pointer monitorUnref(Pointer monitor) {
+                    return LibUdev.INSTANCE.udev_monitor_unref(monitor);
+                }
+
+                @Override
+                public String deviceGetAction(Pointer device) {
+                    return LibUdev.INSTANCE.udev_device_get_action(device);
+                }
+
+                @Override
+                public String deviceGetDevnode(Pointer device) {
+                    return LibUdev.INSTANCE.udev_device_get_devnode(device);
+                }
+
+                @Override
+                public String deviceGetPropertyValue(Pointer device, String key) {
+                    return LibUdev.INSTANCE.udev_device_get_property_value(device, key);
+                }
+
+                @Override
+                public Pointer deviceUnref(Pointer device) {
+                    return LibUdev.INSTANCE.udev_device_unref(device);
+                }
+            };
+        }
+    }
+
     private final MountPathResolver mountPathResolver;
     private final DaemonLogger daemonLogger;
     private final ErrorLogger errorLogger;
@@ -81,20 +174,40 @@ public final class DeviceEventListener {
         return mountPath;
     }
 
-    private static final class LibUdevDeviceNameAwaiter implements DeviceNameAwaiter {
+    static final class LibUdevDeviceNameAwaiter implements DeviceNameAwaiter {
         private static final long POLL_INTERVAL_MILLIS = 200L;
 
         private final DaemonLogger daemonLogger;
         private final ErrorLogger errorLogger;
+        private final LibUdevFacade libUdevFacade;
+        private final OsDetector osDetector;
+        private final Sleeper sleeper;
 
         private LibUdevDeviceNameAwaiter(DaemonLogger daemonLogger, ErrorLogger errorLogger) {
+            this(
+                    daemonLogger,
+                    errorLogger,
+                    LibUdevFacade.nativeFacade(),
+                    () -> System.getProperty("os.name", "").toLowerCase().contains("linux"),
+                    Thread::sleep);
+        }
+
+        LibUdevDeviceNameAwaiter(
+                DaemonLogger daemonLogger,
+                ErrorLogger errorLogger,
+                LibUdevFacade libUdevFacade,
+                OsDetector osDetector,
+                Sleeper sleeper) {
             this.daemonLogger = daemonLogger;
             this.errorLogger = errorLogger;
+            this.libUdevFacade = Objects.requireNonNull(libUdevFacade, "libUdevFacade");
+            this.osDetector = Objects.requireNonNull(osDetector, "osDetector");
+            this.sleeper = Objects.requireNonNull(sleeper, "sleeper");
         }
 
         @Override
         public Optional<String> awaitNextDeviceName() {
-            if (!isLinux()) {
+            if (!osDetector.isLinux()) {
                 errorLogger.logFailure("libudev device listening is only supported on Linux");
                 return Optional.empty();
             }
@@ -102,30 +215,30 @@ public final class DeviceEventListener {
             Pointer udev = null;
             Pointer monitor = null;
             try {
-                udev = LibUdev.INSTANCE.udev_new();
+                udev = libUdevFacade.udevNew();
                 if (udev == null) {
                     errorLogger.logFailure("Failed to initialize libudev context");
                     return Optional.empty();
                 }
 
-                monitor = LibUdev.INSTANCE.udev_monitor_new_from_netlink(udev, "udev");
+                monitor = libUdevFacade.monitorNewFromNetlink(udev, "udev");
                 if (monitor == null) {
                     errorLogger.logFailure("Failed to create libudev monitor");
                     return Optional.empty();
                 }
 
-                if (LibUdev.INSTANCE.udev_monitor_filter_add_match_subsystem_devtype(monitor, "block", null) != 0) {
+                if (libUdevFacade.monitorFilterAddMatchSubsystemDevtype(monitor, "block", null) != 0) {
                     errorLogger.logFailure("Failed to configure libudev block filter");
                     return Optional.empty();
                 }
 
-                if (LibUdev.INSTANCE.udev_monitor_enable_receiving(monitor) != 0) {
+                if (libUdevFacade.monitorEnableReceiving(monitor) != 0) {
                     errorLogger.logFailure("Failed to enable libudev monitor receiving");
                     return Optional.empty();
                 }
 
                 while (!Thread.currentThread().isInterrupted()) {
-                    Pointer device = LibUdev.INSTANCE.udev_monitor_receive_device(monitor);
+                    Pointer device = libUdevFacade.monitorReceiveDevice(monitor);
                     if (device == null) {
                         sleepQuietly();
                         continue;
@@ -138,7 +251,7 @@ public final class DeviceEventListener {
                             return deviceName;
                         }
                     } finally {
-                        LibUdev.INSTANCE.udev_device_unref(device);
+                        libUdevFacade.deviceUnref(device);
                     }
                 }
 
@@ -150,23 +263,23 @@ public final class DeviceEventListener {
                 return Optional.empty();
             } finally {
                 if (monitor != null) {
-                    LibUdev.INSTANCE.udev_monitor_unref(monitor);
+                    libUdevFacade.monitorUnref(monitor);
                 }
                 if (udev != null) {
-                    LibUdev.INSTANCE.udev_unref(udev);
+                    libUdevFacade.udevUnref(udev);
                 }
             }
         }
 
         private Optional<String> resolveRelevantDevice(Pointer device) {
-            String action = nullToEmpty(LibUdev.INSTANCE.udev_device_get_action(device));
+            String action = nullToEmpty(libUdevFacade.deviceGetAction(device));
             if (!"add".equals(action) && !"bind".equals(action)) {
                 return Optional.empty();
             }
 
             String devNode = firstNonBlank(
-                    LibUdev.INSTANCE.udev_device_get_devnode(device),
-                    LibUdev.INSTANCE.udev_device_get_property_value(device, "DEVNAME"));
+                    libUdevFacade.deviceGetDevnode(device),
+                    libUdevFacade.deviceGetPropertyValue(device, "DEVNAME"));
             if (devNode == null) {
                 return Optional.empty();
             }
@@ -175,14 +288,10 @@ public final class DeviceEventListener {
 
         private void sleepQuietly() {
             try {
-                Thread.sleep(POLL_INTERVAL_MILLIS);
+                sleeper.sleep(POLL_INTERVAL_MILLIS);
             } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
             }
-        }
-
-        private boolean isLinux() {
-            return System.getProperty("os.name", "").toLowerCase().contains("linux");
         }
 
         private String nullToEmpty(String value) {
