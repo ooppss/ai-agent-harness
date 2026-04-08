@@ -1,0 +1,224 @@
+# IMPLEMENTATION_TASK_02_DEVICE_SCAN
+
+## 1. 문서 목적
+
+본 문서는 Storage Device PCAP Ingest / Relay Daemon의 두 번째 구현 작업 지시를 정의한다.
+
+이번 작업의 목적은 `device`, `scan` package의 초기 구현을 통해 외부 연결 저장장치의 대상 블록디바이스 이벤트를 감지하고, mount path를 확인한 뒤, 지정 경로에서 `*.pcap` 파일을 탐색할 수 있는 구조를 만드는 것이다.
+
+본 작업은 이후 `storage`, `relay`, `naming`, `logging` 구현이 안정적으로 이어질 수 있도록 장치 감지와 파일 탐색의 기본 흐름을 고정하는 것을 목표로 한다.
+
+---
+
+## 2. 작업 범위
+
+이번 작업의 구현 범위는 다음으로 제한한다.
+
+- `device` package 생성
+- `scan` package 생성
+- 장치 이벤트 감지 클래스 생성
+- mount path 확인 클래스 생성
+- `*.pcap` 탐색 클래스 생성
+- 장치 감지 → mount path 확인 → 지정 경로 탐색까지의 흐름 연결
+- 초기 버전의 탐색 결과 구조 작성
+
+이번 작업은 실제 MinIO 업로드, `src-extracted` relay 이동 처리, object key 계산, 대상 경로 규칙 계산까지 구현하지 않는다.
+
+---
+
+## 3. 기준 문서
+
+구현 Agent는 작업 전에 다음 문서를 반드시 확인해야 한다.
+
+- `PROJECT_STATE.md`
+- `docs/project/PRD.md`
+- `docs/project/ARCHITECTURE.md`
+- `docs/project/IMPLEMENTATION_TASK_01_APP_CONFIG.md`
+
+문서 간 충돌이 있을 경우 최신 사용자 요청과 `PROJECT_STATE.md`를 우선 확인한다.
+
+---
+
+## 4. 이번 작업의 목표
+
+이번 작업에서 달성해야 하는 목표는 다음과 같다.
+
+1. 외부 연결 저장장치에 대한 대상 블록디바이스 이벤트 감지 구조를 만든다.
+2. 감지된 장치의 mount path를 확인하는 구조를 만든다.
+3. mount path 하위의 지정 경로에서 `*.pcap` 파일을 탐색하는 구조를 만든다.
+4. 이후 `storage` 업로드 단계로 연결 가능한 탐색 결과를 만들 수 있도록 한다.
+5. 초기 구현 기준인 단일 장치 처리 흐름을 유지한다.
+
+---
+
+## 5. 대상 package
+
+이번 작업의 대상 package는 다음 두 개이다.
+
+- `device`
+- `scan`
+
+### 5.1 package 역할
+
+- `device`
+  - `udev` 기반 장치 이벤트 감지
+  - 대상 블록디바이스 식별
+  - mount path 확인
+  - 단일 장치 처리 흐름의 시작점 제공
+
+- `scan`
+  - 지정 경로 탐색
+  - `*.pcap` 파일 식별
+  - 탐색 결과 정리
+  - 이후 업로드 단계로 전달 가능한 결과 구조 제공
+
+---
+
+## 6. 생성 대상 클래스
+
+이번 작업에서 생성할 클래스는 다음과 같다.
+
+### 6.1 device package
+
+#### `DeviceEventListener`
+역할:
+- `udev` 기반 장치 이벤트 감지 구조 제공
+- 초기 버전에서는 실제 감지 루프 또는 감지 진입 구조를 담당
+- 대상 이벤트만 후속 처리 대상으로 넘길 수 있는 형태를 제공
+
+#### `MountPathResolver`
+역할:
+- 감지된 장치의 mount path 확인
+- mount path가 즉시 확인되지 않을 경우 설정 기반 재시도 수행
+- 확인 실패 시 명확한 실패 반환 또는 예외 처리
+
+### 6.2 scan package
+
+#### `PcapScanner`
+역할:
+- mount path 하위의 지정 경로를 기준으로 탐색 수행
+- `*.pcap` 파일만 식별
+- 지정 경로 미존재 / `pcap` 미발견 상황을 구분 가능하게 처리
+
+#### `ScanResult`
+역할:
+- 탐색 결과를 담는 구조
+- 최소한 다음 정보를 담을 수 있어야 한다.
+  - mount path
+  - 탐색 대상 경로
+  - 발견된 `pcap` 파일 목록 또는 개수
+  - 탐색 성공/실패 상태
+
+---
+
+## 7. 권장 파일 배치
+
+```text
+daemon/
+└─ src/
+   └─ main/
+      └─ java/
+         └─ <base-package>/
+            ├─ device/
+            │  ├─ DeviceEventListener.java
+            │  └─ MountPathResolver.java
+            └─ scan/
+               ├─ PcapScanner.java
+               └─ ScanResult.java
+```
+
+## 8. 구현 기준
+
+### 8.1 device 구현 기준
+- 장치 감지는 이벤트 기반으로 처리한다.
+- Linux 계층 기준은 `udev`를 사용한다.
+- Java 연동 방식은 `libudev` + `JNA` 기준을 따른다.
+- 초기 구현은 단일 장치 처리 방식으로 제한한다.
+- `DeviceEventListener`는 업로드나 `relay` 같은 후속 기능 로직을 직접 포함하지 않는다.
+- `MountPathResolver`는 `mount path` 확인과 재시도까지만 담당한다.
+
+### 8.2 mount path 확인 기준
+- `mount path`는 이벤트 직후 확인을 시도한다.
+- 즉시 확인되지 않으면 짧은 재시도를 수행한다.
+- 재시도 횟수와 간격은 설정값을 통해 받을 수 있어야 한다.
+- 재시도 후에도 확인되지 않으면 실패로 처리해야 한다.
+
+### 8.3 scan 구현 기준
+- `PcapScanner`는 `mount path` 하위의 지정 경로만 탐색해야 한다.
+- 장치 전체를 무차별 탐색하지 않는다.
+- `*.pcap` 파일만 처리 대상으로 식별한다.
+- 입력 경로 구조의 기본 형태는 다음 기준을 따른다.
+
+```text
+<차량유형>/<수집날짜>/<차량유형-차량번호>/
+```
+
+- `PcapScanner`는 업로드나 이동 로직을 직접 포함하지 않는다.
+
+### 8.4 ScanResult 기준
+- `ScanResult`는 이후 `storage` 단계가 활용할 수 있는 최소 정보를 제공해야 한다.
+- 단순 파일 목록만 넘기기보다, 탐색 문맥을 함께 담을 수 있는 구조를 권장한다.
+- 성공, 지정 경로 미존재, `pcap` 미발견 같은 상태를 구분 가능해야 한다.
+
+### 8.5 구조 분리 기준
+- `device`는 감지와 `mount path` 확인까지만 담당한다.
+- `scan`은 지정 경로 탐색과 결과 정리까지만 담당한다.
+- 두 package의 책임을 섞지 않는다.
+
+예:
+
+- `DeviceEventListener` 안에 `*.pcap` 탐색 로직을 길게 넣지 않는다.
+- `PcapScanner` 안에 `udev` 이벤트 처리 로직을 넣지 않는다.
+
+## 9. 이번 작업에서 하지 않는 것
+
+다음 항목은 이번 작업 범위에 포함하지 않는다.
+
+- `MinIO` 연결 구현
+- `ingest-staging` 업로드 구현
+- `src-extracted` relay 구현
+- `object key` 계산 구현
+- 대상 경로 규칙 계산 구현
+- 상세 로그 포맷 설계
+- 운영 서버별 대상 블록디바이스 식별 규칙의 최종 확정
+- 테스트 코드의 완전한 구현
+
+## 10. 완료 조건
+
+이번 작업은 아래 조건을 만족하면 완료로 본다.
+
+1. `device` package, `scan` package가 생성되어 있다.
+2. `DeviceEventListener`, `MountPathResolver`, `PcapScanner`, `ScanResult` 클래스가 생성되어 있다.
+3. 장치 이벤트 감지 구조가 후속 처리 연결 가능 형태로 준비되어 있다.
+4. `mount path` 확인과 설정 기반 재시도 흐름이 존재한다.
+5. `mount path` 하위의 지정 경로에서 `*.pcap` 파일을 탐색할 수 있다.
+6. 지정 경로 미존재와 `pcap` 미발견을 구분할 수 있다.
+7. 이후 `storage` package가 받을 수 있는 탐색 결과 구조가 정의되어 있다.
+
+## 11. 산출물
+
+이번 작업의 산출물은 다음과 같다.
+
+- `device` package 초기 클래스
+- `scan` package 초기 클래스
+- `mount path` 재시도 흐름
+- `*.pcap` 탐색 구조
+- 업로드 전 단계에서 사용할 수 있는 탐색 결과 구조
+
+## 12. 후속 작업 연결
+
+이번 작업이 완료되면 다음 구현 작업으로 이어진다.
+
+- `storage` package 구현
+- `relay` package 구현
+- `naming` package 구현
+- `logging` package 구현
+
+즉, 이번 작업은 장치 감지와 파일 탐색의 기반을 고정하는 2차 작업이다.
+
+## 13. 작업 시 주의 사항
+- 현재 단계에서는 구조를 단순하게 유지한다.
+- 아직 확정되지 않은 운영 서버별 식별 규칙을 코드에 과도하게 고정하지 않는다.
+- 문서 기준을 벗어난 임의 확장을 하지 않는다.
+- 초기 구현은 단일 장치 처리 흐름을 전제로 한다.
+- 실제 업로드 기능을 섞지 말고, 장치 감지와 탐색 구조를 안정적으로 만드는 데 집중한다.
