@@ -38,7 +38,15 @@ public final class DaemonRunner {
         }
 
         ScanResult scanResult = pcapScanner.scan(mountPath.get());
-        ingestUploader.upload(scanResult);
+        if (!scanResult.isSuccessful()) {
+            errorLogger.logScanFailure(scanResult.getTargetPath(), scanResult.getDetailMessage());
+            daemonLogger.logShutdown();
+            return;
+        }
+        IngestUploader.UploadBatchResult uploadBatchResult = ingestUploader.upload(scanResult);
+        if (!uploadBatchResult.isSuccessful()) {
+            errorLogger.logFailure("Upload batch completed with failures: " + uploadBatchResult.detailMessage());
+        }
         daemonLogger.logShutdown();
     }
 }

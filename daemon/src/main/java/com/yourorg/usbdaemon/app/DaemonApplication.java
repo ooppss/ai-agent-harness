@@ -23,8 +23,8 @@ public final class DaemonApplication {
         ErrorLogger errorLogger = new ErrorLogger();
         daemonLogger.logStartup(appConfig.getLogPath());
 
-        MountPathResolver mountPathResolver = new MountPathResolver(appConfig, errorLogger);
-        DeviceEventListener deviceEventListener = new DeviceEventListener(mountPathResolver, daemonLogger);
+        MountPathResolver mountPathResolver = new MountPathResolver(appConfig, daemonLogger, errorLogger);
+        DeviceEventListener deviceEventListener = new DeviceEventListener(mountPathResolver, daemonLogger, errorLogger);
         PcapScanner pcapScanner = new PcapScanner(appConfig, daemonLogger, errorLogger);
         ObjectKeyBuilder objectKeyBuilder = new ObjectKeyBuilder();
         MinioStorageClient minioStorageClient = new MinioStorageClient(appConfig);

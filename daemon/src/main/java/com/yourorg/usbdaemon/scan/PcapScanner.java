@@ -7,7 +7,9 @@ import com.yourorg.usbdaemon.logging.ErrorLogger;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Stream;
 
 public final class PcapScanner {
@@ -23,53 +25,121 @@ public final class PcapScanner {
 
     public ScanResult scan(Path mountPath) {
         Path targetPath = resolveTargetPath(mountPath);
-        daemonLogger.logDeviceScanStart(mountPath, targetPath);
+        daemonLogger.logScanStart(mountPath, targetPath);
+
+        if (!targetPath.startsWith(mountPath.normalize())) {
+            errorLogger.logScanFailure(targetPath, "Resolved target path escapes mount path");
+            return new ScanResult(
+                    ScanResult.Status.FAILED,
+                    mountPath,
+                    targetPath,
+                    List.of(),
+                    "Resolved target path escapes mount path",
+                    0);
+        }
 
         if (!Files.isDirectory(targetPath)) {
+            errorLogger.logScanFailure(targetPath, "Target scan directory does not exist");
             return new ScanResult(
                     ScanResult.Status.TARGET_DIRECTORY_MISSING,
                     mountPath,
                     targetPath,
                     List.of(),
-                    "Target scan directory does not exist");
+                    "Target scan directory does not exist",
+                    0);
         }
 
-        try (Stream<Path> pathStream = Files.walk(targetPath)) {
-            List<Path> pcapFiles = pathStream
-                    .filter(Files::isRegularFile)
-                    .filter(path -> path.getFileName().toString().endsWith(".pcap"))
-                    .toList();
+        try {
+            ScanDiscovery discovery = config.getScanRelativePath().isBlank()
+                    ? discoverByDocumentedStructure(targetPath)
+                    : discoverFromConfiguredTarget(targetPath);
 
-            daemonLogger.logDeviceScanFinish(pcapFiles.size());
+            ScanResult.Status status = discovery.pcapFiles().isEmpty()
+                    ? ScanResult.Status.NO_PCAP_FILES
+                    : ScanResult.Status.SUCCESS;
+            daemonLogger.logScanFinish(
+                    mountPath,
+                    targetPath,
+                    discovery.pcapFiles().size(),
+                    discovery.scannedDirectoryCount(),
+                    status.name());
 
-            if (pcapFiles.isEmpty()) {
+            if (discovery.pcapFiles().isEmpty()) {
+                errorLogger.logScanFailure(targetPath, "No pcap files were found under target path");
                 return new ScanResult(
                         ScanResult.Status.NO_PCAP_FILES,
                         mountPath,
                         targetPath,
-                        pcapFiles,
-                        "No pcap files were found under target path");
+                        List.of(),
+                        "No pcap files were found under target path",
+                        discovery.scannedDirectoryCount());
             }
 
             return new ScanResult(
                     ScanResult.Status.SUCCESS,
                     mountPath,
                     targetPath,
-                    pcapFiles,
-                    "pcap files found");
+                    discovery.pcapFiles(),
+                    "pcap files found",
+                    discovery.scannedDirectoryCount());
         } catch (IOException exception) {
-            errorLogger.logFailure("Failed to scan pcap files under " + targetPath, exception);
+            errorLogger.logScanFailure(targetPath, "Failed to scan pcap files under target path", exception);
             return new ScanResult(
                     ScanResult.Status.FAILED,
                     mountPath,
                     targetPath,
                     List.of(),
-                    "Scan failed: " + exception.getMessage());
+                    "Scan failed: " + exception.getMessage(),
+                    0);
         }
     }
 
     private Path resolveTargetPath(Path mountPath) {
         String relativePath = config.getScanRelativePath();
         return relativePath.isBlank() ? mountPath : mountPath.resolve(relativePath).normalize();
+    }
+
+    private ScanDiscovery discoverFromConfiguredTarget(Path targetPath) throws IOException {
+        try (Stream<Path> pathStream = Files.walk(targetPath)) {
+            List<Path> pcapFiles = pathStream
+                    .filter(Files::isRegularFile)
+                    .filter(this::isPcapFile)
+                    .sorted()
+                    .toList();
+            return new ScanDiscovery(pcapFiles, 1);
+        }
+    }
+
+    private ScanDiscovery discoverByDocumentedStructure(Path mountPath) throws IOException {
+        List<Path> candidateDirectories;
+        try (Stream<Path> pathStream = Files.walk(mountPath, 3)) {
+            candidateDirectories = pathStream
+                    .filter(Files::isDirectory)
+                    .filter(path -> !path.equals(mountPath))
+                    .filter(path -> mountPath.relativize(path).getNameCount() == 3)
+                    .sorted()
+                    .toList();
+        }
+
+        List<Path> pcapFiles = new ArrayList<>();
+        for (Path candidateDirectory : candidateDirectories) {
+            try (Stream<Path> childStream = Files.list(candidateDirectory)) {
+                childStream
+                        .filter(Files::isRegularFile)
+                        .filter(this::isPcapFile)
+                        .sorted()
+                        .forEach(pcapFiles::add);
+            }
+        }
+
+        return new ScanDiscovery(List.copyOf(pcapFiles), candidateDirectories.size());
+    }
+
+    private boolean isPcapFile(Path path) {
+        String fileName = path.getFileName().toString().toLowerCase(Locale.ROOT);
+        return fileName.endsWith(".pcap");
+    }
+
+    private record ScanDiscovery(List<Path> pcapFiles, int scannedDirectoryCount) {
     }
 }

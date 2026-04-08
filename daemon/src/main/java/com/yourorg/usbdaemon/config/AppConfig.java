@@ -30,6 +30,12 @@ public final class AppConfig {
         this.ingestBucket = requireText(ingestBucket, "ingestBucket");
         this.deviceMountPath = Objects.requireNonNull(deviceMountPath, "deviceMountPath");
         this.scanRelativePath = Objects.requireNonNull(scanRelativePath, "scanRelativePath");
+        if (mountPathRetryCount < 0) {
+            throw new IllegalArgumentException("mountPathRetryCount must be zero or greater");
+        }
+        if (mountPathRetryIntervalMillis < 0) {
+            throw new IllegalArgumentException("mountPathRetryIntervalMillis must be zero or greater");
+        }
         this.mountPathRetryCount = mountPathRetryCount;
         this.mountPathRetryIntervalMillis = mountPathRetryIntervalMillis;
         this.logPath = Objects.requireNonNull(logPath, "logPath");
