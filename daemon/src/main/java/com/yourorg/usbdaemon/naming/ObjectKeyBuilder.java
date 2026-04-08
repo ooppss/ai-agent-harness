@@ -36,7 +36,7 @@ public final class ObjectKeyBuilder {
         String mm = slice(collectionDate, 4, 6, "collectionDate");
         String dd = slice(collectionDate, 6, 8, "collectionDate");
         String dateKey = buildDateKey(collectionDate);
-        String vehicleNumber = extractVehicleNumber(vehicleType, vehicleDirectory);
+        String vehicleNumber = normalizeVehicleNumber(extractVehicleNumber(vehicleType, vehicleDirectory));
 
         return String.format("%s/%s/%s/%s/%s_%s/%s",
                 vehicleType,
@@ -62,6 +62,17 @@ public final class ObjectKeyBuilder {
 
     private String buildDateKey(String collectionDate) {
         return slice(collectionDate, 2, 8, "collectionDate");
+    }
+
+    private String normalizeVehicleNumber(String vehicleNumber) {
+        String normalized = vehicleNumber.trim();
+        if (normalized.isEmpty()) {
+            throw new IllegalArgumentException("vehicle number must not be blank");
+        }
+        if (normalized.startsWith("v") || normalized.startsWith("V")) {
+            return "v" + normalized.substring(1);
+        }
+        return "v" + normalized;
     }
 
     private String extractVehicleNumber(String vehicleType, String vehicleDirectory) {
