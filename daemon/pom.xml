@@ -47,7 +47,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>com.example.daemon.Main</mainClass>
+                            <mainClass>com.yourorg.usbdaemon.app.DaemonApplication</mainClass>
                         </manifest>
                     </archive>
                 </configuration>
