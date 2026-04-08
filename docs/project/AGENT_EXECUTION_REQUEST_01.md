@@ -2,7 +2,7 @@
 
 ## 1. 목적
 
-본 요청의 목적은 Storage Device PCAP Ingest / Relay Daemon의 1차 구현을 시작하는 것이다.
+본 요청의 목적은 Storage Device PCAP Ingest Daemon의 1차 구현을 시작하는 것이다.
 
 구현 범위는 이미 정의된 구현 작업 문서 기준에 따라 진행하며, 이번 실행 요청에서는 `task 1`부터 `task 4`까지의 package 뼈대와 기본 연결 구조를 구현 대상으로 한다.
 
@@ -35,7 +35,7 @@
 3. `docs/project/ARCHITECTURE.md`
 4. `docs/project/IMPLEMENTATION_TASK_01_APP_CONFIG.md`
 5. `docs/project/IMPLEMENTATION_TASK_02_DEVICE_SCAN.md`
-6. `docs/project/IMPLEMENTATION_TASK_03_STORAGE_RELAY.md`
+6. `docs/project/IMPLEMENTATION_TASK_03_STORAGE.md`
 7. `docs/project/IMPLEMENTATION_TASK_04_NAMING_LOGGING.md`
 
 문서 간 충돌이 있을 경우 최신 사용자 요청과 `PROJECT_STATE.md`를 우선 기준으로 삼는다.
@@ -51,7 +51,6 @@
 - `device`
 - `scan`
 - `storage`
-- `relay`
 - `naming`
 - `logging`
 
@@ -73,7 +72,7 @@
 
 1. `IMPLEMENTATION_TASK_01_APP_CONFIG.md`
 2. `IMPLEMENTATION_TASK_02_DEVICE_SCAN.md`
-3. `IMPLEMENTATION_TASK_03_STORAGE_RELAY.md`
+3. `IMPLEMENTATION_TASK_03_STORAGE.md`
 4. `IMPLEMENTATION_TASK_04_NAMING_LOGGING.md`
 
 앞 단계 산출물을 다음 단계 입력으로 자연스럽게 연결해야 한다.
@@ -88,11 +87,12 @@
 - package 책임을 섞지 않는다.
 - 초기 구현은 단순한 구조를 유지한다.
 - 최종 운영 규칙이 미정인 항목은 하드코딩하지 않는다.
-- `src-extracted` 전달은 copy 후 source 삭제 기준을 따른다.
-- copy 실패와 source 삭제 실패를 구분한다.
-- 성공 / 실패 / 부분 실패를 구분 가능한 구조를 유지한다.
 - 장치 전체 무차별 탐색을 하지 않는다.
 - `*.pcap` 파일만 처리 대상으로 본다.
+- 업로드 대상 경로는 `차종/yyyy/mm/dd/yyddmm_차번호/` 규칙을 반영할 수 있는 구조로 만든다.
+- 원본 `pcap` 파일명은 유지한다.
+- `src-extracted` 관련 처리는 구현하지 않는다.
+- 성공 / 실패를 구분 가능한 구조를 유지한다.
 
 ---
 
@@ -106,7 +106,6 @@
 - `device`
 - `scan`
 - `storage`
-- `relay`
 - `naming`
 - `logging`
 
@@ -121,10 +120,7 @@
 - `ScanResult`
 - `MinioStorageClient`
 - `IngestUploader`
-- `RelayService`
-- `RelayResult`
 - `ObjectKeyBuilder`
-- `TargetPathResolver`
 - `DaemonLogger`
 - `ErrorLogger`
 
@@ -133,8 +129,7 @@
 - `.properties` 기반 설정 로드 구조
 - 장치 감지 → mount path 확인 → 지정 경로 탐색 구조
 - `ingest-staging` 업로드 구조
-- `src-extracted` relay 구조
-- object key / 대상 경로 계산 구조
+- object key 계산 구조
 - 공통 로그 / 오류 기록 구조
 
 ---
@@ -153,6 +148,7 @@
 - `pcap` 분해
 - 센서별 추출
 - dataset 생성
+- `src-extracted` 관련 처리
 
 ---
 
@@ -173,7 +169,7 @@
 
 이번 실행은 아래 조건을 만족하면 완료로 본다.
 
-- task 1~4의 대상 package와 클래스가 생성되어 있다.
+- task 1~4의 현재 기준 대상 package와 클래스가 생성되어 있다.
 - 문서 기준에 맞는 책임 분리가 반영되어 있다.
 - package 간 최소 연결 구조가 존재한다.
 - 문서 기준을 벗어난 임의 확장이 없다.

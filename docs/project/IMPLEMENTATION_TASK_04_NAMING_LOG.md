@@ -2,11 +2,11 @@
 
 ## 1. 문서 목적
 
-본 문서는 Storage Device PCAP Ingest / Relay Daemon의 네 번째 구현 작업 지시를 정의한다.
+본 문서는 Storage Device PCAP Ingest Daemon의 네 번째 구현 작업 지시를 정의한다.
 
-이번 작업의 목적은 `naming`, `logging` package의 초기 구현을 통해 `ingest-staging` 업로드용 object key와 `src-extracted` 대상 경로를 계산할 수 있는 구조를 만들고, 각 단계의 처리 결과와 오류를 일관되게 기록할 수 있는 기반을 마련하는 것이다.
+이번 작업의 목적은 `naming`, `logging` package의 초기 구현을 통해 `ingest-staging` 업로드용 object key를 계산할 수 있는 구조를 만들고, 각 단계의 처리 결과와 오류를 일관되게 기록할 수 있는 기반을 마련하는 것이다.
 
-본 작업은 앞선 `app`, `config`, `device`, `scan`, `storage`, `relay` 구현이 안정적으로 연결될 수 있도록 naming rule 적용과 logging 구조를 고정하는 것을 목표로 한다.
+본 작업은 앞선 `app`, `config`, `device`, `scan`, `storage` 구현이 안정적으로 연결될 수 있도록 naming rule 적용과 logging 구조를 고정하는 것을 목표로 한다.
 
 ---
 
@@ -17,13 +17,11 @@
 - `naming` package 생성
 - `logging` package 생성
 - object key 생성 클래스 생성
-- `src-extracted` 대상 경로 계산 클래스 생성
 - 처리 로그 기록 클래스 생성
-- 오류 및 부분 실패 기록 구조 생성
-- 기존 `storage`, `relay` 흐름에 naming / logging 연결 가능 구조 마련
+- 오류 기록 구조 생성
+- 기존 `storage` 흐름에 naming / logging 연결 가능 구조 마련
 
-이번 작업은 `src-extracted` 대상 경로의 최종 운영 규칙 확정, 로그 적재 시스템 연동, 외부 모니터링 시스템 연동, 운영 대시보드 구현까지 포함하지 않는다.
-
+이번 작업은 object key 최종 세부 규칙 확정, 로그 적재 시스템 연동, 외부 모니터링 시스템 연동, 운영 대시보드 구현까지 포함하지 않는다.
 ---
 
 ## 3. 기준 문서
@@ -35,7 +33,7 @@
 - `docs/project/ARCHITECTURE.md`
 - `docs/project/IMPLEMENTATION_TASK_01_APP_CONFIG.md`
 - `docs/project/IMPLEMENTATION_TASK_02_DEVICE_SCAN.md`
-- `docs/project/IMPLEMENTATION_TASK_03_STORAGE_RELAY.md`
+- `docs/project/IMPLEMENTATION_TASK_03_STORAGE.md`
 
 문서 간 충돌이 있을 경우 최신 사용자 요청과 `PROJECT_STATE.md`를 우선 확인한다.
 
@@ -46,10 +44,9 @@
 이번 작업에서 달성해야 하는 목표는 다음과 같다.
 
 1. `ingest-staging` 업로드 시 사용할 object key 계산 구조를 만든다.
-2. `src-extracted` 전달 시 사용할 대상 경로 계산 구조를 만든다.
-3. 현재 미정인 최종 규칙을 과도하게 하드코딩하지 않는 유연한 구조를 만든다.
-4. 주요 처리 단계의 성공, 실패, 부분 실패를 일관되게 기록할 수 있는 logging 구조를 만든다.
-5. 이후 실제 운영 규칙 확정 시 naming rule을 교체하거나 확장하기 쉬운 구조를 만든다.
+2. 현재 미정인 최종 규칙을 과도하게 하드코딩하지 않는 유연한 구조를 만든다.
+3. 주요 처리 단계의 성공, 실패를 일관되게 기록할 수 있는 logging 구조를 만든다.
+4. 이후 실제 운영 규칙 확정 시 naming rule을 교체하거나 확장하기 쉬운 구조를 만든다.
 
 ---
 
@@ -64,15 +61,12 @@
 
 - `naming`
   - `ingest-staging` object key 계산
-  - `src-extracted` 대상 경로 계산
   - 입력 경로 구조와 운영 규칙을 반영한 naming rule 적용
 
 - `logging`
   - 처리 단계 로그 기록
   - 오류 로그 기록
-  - 부분 실패 상태 기록
   - 후속 추적에 필요한 핵심 정보 정리
-
 ---
 
 ## 6. 생성 대상 클래스
@@ -87,24 +81,18 @@
 - 현재 기준상 입력 경로 구조를 반영할 수 있는 기본 생성 규칙 제공
 - 최종 규칙 확정 전까지 과도한 하드코딩 없이 확장 가능 구조 유지
 
-#### `TargetPathResolver`
-역할:
-- `src-extracted` 대상 경로 계산
-- 설정값 또는 별도 규칙 입력을 바탕으로 대상 경로 생성
-- 최종 운영 규칙이 확정되기 전까지 교체 가능 구조 유지
-
 ### 6.2 logging package
 
 #### `DaemonLogger`
 역할:
 - 주요 처리 흐름 로그 기록
-- 장치 감지, `mount path` 확인, 탐색 시작/종료, 업로드 시작/완료/실패, `relay` 시작/완료/실패 등 주요 이벤트 기록
+- 장치 감지, `mount path` 확인, 탐색 시작/종료, 업로드 시작/완료/실패 등 주요 이벤트 기록
 - 후속 추적을 위한 공통 로그 진입점 제공
 
 #### `ErrorLogger`
 역할:
-- 오류와 부분 실패 기록
-- copy 실패, source 삭제 실패, 지정 경로 미존재, `pcap` 미발견 등 예외 상황 기록
+- 오류 기록
+- 지정 경로 미존재, `pcap` 미발견, object key 계산 실패, 업로드 실패 등 예외 상황 기록
 - 문제 원인과 재처리 판단에 필요한 최소 정보 제공
 
 ---
@@ -118,8 +106,7 @@ daemon/
       └─ java/
          └─ <base-package>/
             ├─ naming/
-            │  ├─ ObjectKeyBuilder.java
-            │  └─ TargetPathResolver.java
+            │  └─ ObjectKeyBuilder.java
             └─ logging/
                ├─ DaemonLogger.java
                └─ ErrorLogger.java
@@ -129,7 +116,7 @@ daemon/
 
 ### 8.1 `naming` 구현 기준
 - `naming`은 계산 규칙 제공까지만 담당한다.
-- 실제 업로드 수행이나 `relay` 수행 로직을 직접 포함하지 않는다.
+- 실제 업로드 수행 로직을 직접 포함하지 않는다.
 - 입력 정보와 규칙을 받아 결과 문자열을 계산하는 역할에 집중한다.
 
 ### 8.2 `object key` 계산 기준
@@ -138,18 +125,12 @@ daemon/
 - `object key`의 최종 세부 규칙은 아직 미정이므로 코드에 과도하게 고정하지 않는다.
 - 향후 운영 규칙이 확정되면 교체 또는 확장 가능한 구조를 권장한다.
 
-### 8.3 `src-extracted` 대상 경로 계산 기준
-- `TargetPathResolver`는 대상 경로 계산만 담당한다.
-- `src-extracted`의 최종 세부 규칙은 아직 미정이므로 하드코딩하지 않는다.
-- 설정값 또는 별도 규칙 입력을 통해 계산 가능한 구조를 권장한다.
-- `relay`는 이 계산 결과를 받아 전달만 수행하는 구조를 유지한다.
-
-### 8.4 `logging` 구현 기준
+### 8.3 `logging` 구현 기준
 - `logging`은 기록 담당까지만 맡는다.
-- 장치 감지, 탐색, 업로드, `relay` 로직을 직접 포함하지 않는다.
+- 장치 감지, 탐색, 업로드 로직을 직접 포함하지 않는다.
 - 주요 단계의 시작 / 완료 / 실패를 일관된 방식으로 남길 수 있어야 한다.
 
-### 8.5 기록 대상 기준
+### 8.4 기록 대상 기준
 
 최소한 다음 항목은 기록 가능해야 한다.
 
@@ -158,18 +139,14 @@ daemon/
 - 지정 경로 탐색 시작 / 종료
 - `pcap` 파일 목록 또는 개수
 - `ingest-staging` 업로드 시작 / 완료 / 실패
-- `src-extracted` 전달 시작 / 완료 / 실패
-- copy 성공 여부
-- source 삭제 성공 여부
-- 부분 실패 여부
+- object key 계산 성공 / 실패
 - 오류 원인
 
-### 8.6 `ErrorLogger` 기준
-- `ErrorLogger`는 전체 실패와 부분 실패를 구분 가능하게 기록해야 한다.
-- source 삭제 실패는 전체 성공이 아니라 부분 실패로 남겨야 한다.
+### 8.5 `ErrorLogger` 기준
+- `ErrorLogger`는 실패를 구분 가능하게 기록해야 한다.
 - 재처리 판단에 필요한 핵심 정보가 누락되지 않도록 해야 한다.
 
-### 8.7 구조 분리 기준
+### 8.6 구조 분리 기준
 - `naming`은 문자열 / 경로 계산 담당
 - `logging`은 기록 담당
 - 두 `package`의 책임을 섞지 않는다.
@@ -177,9 +154,8 @@ daemon/
 예:
 
 - `ObjectKeyBuilder` 안에 `MinIO` 업로드 로직을 넣지 않는다.
-- `TargetPathResolver` 안에 copy/delete 로직을 넣지 않는다.
 - `DaemonLogger` 안에 `object key` 계산 로직을 넣지 않는다.
-- `ErrorLogger` 안에 `relay` 처리 로직을 넣지 않는다.
+- `ErrorLogger` 안에 업로드 처리 로직을 넣지 않는다.
 
 ## 9. 이번 작업에서 하지 않는 것
 
@@ -189,23 +165,22 @@ daemon/
 - `mount path` 확인 구현
 - `*.pcap` 탐색 구현
 - `MinIO` 업로드 구현
-- `relay` copy/delete 구현
-- `src-extracted` 최종 운영 규칙 확정
+- object key 최종 운영 규칙 확정
 - 외부 로그 수집 시스템 연동
 - 운영 대시보드 구현
 - 테스트 코드의 완전한 구현
+- `src-extracted` 관련 처리 구현
 
 ## 10. 완료 조건
 
 이번 작업은 아래 조건을 만족하면 완료로 본다.
 
 - `naming` package, `logging` package가 생성되어 있다.
-- `ObjectKeyBuilder`, `TargetPathResolver`, `DaemonLogger`, `ErrorLogger` 클래스가 생성되어 있다.
+- `ObjectKeyBuilder`, `DaemonLogger`, `ErrorLogger` 클래스가 생성되어 있다.
 - 업로드용 `object key` 계산 구조가 존재한다.
-- `src-extracted` 대상 경로 계산 구조가 존재한다.
 - 주요 처리 단계 로그를 남길 수 있는 공통 구조가 존재한다.
-- 오류 및 부분 실패를 구분해 기록할 수 있는 구조가 존재한다.
-- 기존 `storage`, `relay` 흐름에 연결 가능한 형태로 되어 있다.
+- 오류를 구분해 기록할 수 있는 구조가 존재한다.
+- 기존 `storage` 흐름에 연결 가능한 형태로 되어 있다.
 
 ## 11. 산출물
 
@@ -214,9 +189,8 @@ daemon/
 - `naming` package 초기 클래스
 - `logging` package 초기 클래스
 - `object key` 계산 구조
-- 대상 경로 계산 구조
 - 공통 처리 로그 구조
-- 오류 및 부분 실패 기록 구조
+- 오류 기록 구조
 
 ## 12. 후속 작업 연결
 
@@ -233,5 +207,5 @@ daemon/
 - 현재 단계에서는 구조를 단순하게 유지한다.
 - 아직 확정되지 않은 운영 규칙을 코드에 과도하게 고정하지 않는다.
 - 문서 기준을 벗어난 임의 확장을 하지 않는다.
-- 성공 / 실패 / 부분 실패를 구분하는 기록 구조를 명확히 만든다.
+- 성공 / 실패를 구분하는 기록 구조를 명확히 만든다.
 - naming rule은 바뀔 수 있다는 전제를 유지한다.

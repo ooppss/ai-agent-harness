@@ -2,11 +2,11 @@
 
 ## 1. 문서 목적
 
-본 문서는 Storage Device PCAP Ingest / Relay Daemon의 첫 번째 구현 작업 지시를 정의한다.
+본 문서는 Storage Device PCAP Ingest Daemon의 첫 번째 구현 작업 지시를 정의한다.
 
 이번 작업의 목적은 daemon의 전체 기능 구현을 바로 시작하는 것이 아니라, 이후 기능 구현의 기반이 되는 `app`, `config` package의 초기 뼈대를 만드는 것이다.
 
-본 작업은 이후 `device`, `scan`, `storage`, `relay`, `naming`, `logging` 구현이 안정적으로 이어질 수 있도록 시작점과 설정 로드 구조를 고정하는 것을 목표로 한다.
+본 작업은 이후 `device`, `scan`, `storage`, `naming`, `logging` 구현이 안정적으로 이어질 수 있도록 시작점과 설정 로드 구조를 고정하는 것을 목표로 한다.
 
 ---
 
@@ -22,7 +22,7 @@
 - 설정값 보관 클래스 생성
 - 최소 실행 가능한 초기 구조 작성
 
-이번 작업은 실제 장치 감지, 파일 탐색, MinIO 업로드, relay 이동 처리까지 구현하지 않는다.
+이번 작업은 실제 장치 감지, 파일 탐색, MinIO 업로드까지 구현하지 않는다.
 
 ---
 
@@ -129,13 +129,11 @@ daemon/
 - MinIO access key
 - MinIO secret key
 - ingest-staging bucket 이름
-- src-extracted bucket 이름
 - 장치 탐색 루트
 - 지정 경로 규칙
 - mount path 재시도 횟수
 - mount path 재시도 간격
 - 로그 경로
-- src-extracted 대상 경로 규칙
 
 이번 단계에서는 위 항목 전체를 완전히 활용하지 않아도 되지만, `AppConfig` 구조상 수용 가능하도록 준비하는 것을 권장한다.
 
@@ -169,13 +167,12 @@ daemon/
 - `udev` 연동 구현
 - `libudev` + JNA 연동
 - mount path 확인 구현
-- *.pcap 탐색 구현
+- `*.pcap` 탐색 구현
 - MinIO 연결 및 업로드 구현
-- src-extracted relay 구현
 - object key 계산 구현
-- 대상 경로 규칙 계산 구현
 - 상세 로그 포맷 설계
 - 테스트 코드의 완전한 구현
+- `src-extracted` 관련 처리 구현
 
 ## 11. 완료 조건
 
@@ -186,7 +183,7 @@ daemon/
 3. `.properties` 파일을 읽어 `AppConfig` 객체를 만들 수 있다.
 4. daemon 시작 시 설정 로드 후 runner를 실행하는 기본 흐름이 존재한다.
 5. 실제 장치 감지 기능 없이도 애플리케이션 시작 구조가 이해 가능하다.
-6. 이후 device, scan, storage, relay package가 붙을 수 있는 구조로 되어 있다.
+6. 이후 device, scan, storage, naming, logging package가 붙을 수 있는 구조로 되어 있다.
 
 
 ## 12. 산출물
@@ -206,7 +203,6 @@ daemon/
 - device package 구현
 - scan package 구현
 - storage package 구현
-- relay package 구현
 - naming package 구현
 - logging package 구현
 

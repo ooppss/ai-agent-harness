@@ -2,11 +2,11 @@
 
 ## 1. 문서 목적
 
-본 문서는 Storage Device PCAP Ingest / Relay Daemon의 두 번째 구현 작업 지시를 정의한다.
+본 문서는 Storage Device PCAP Ingest Daemon의 두 번째 구현 작업 지시를 정의한다.
 
 이번 작업의 목적은 `device`, `scan` package의 초기 구현을 통해 외부 연결 저장장치의 대상 블록디바이스 이벤트를 감지하고, mount path를 확인한 뒤, 지정 경로에서 `*.pcap` 파일을 탐색할 수 있는 구조를 만드는 것이다.
 
-본 작업은 이후 `storage`, `relay`, `naming`, `logging` 구현이 안정적으로 이어질 수 있도록 장치 감지와 파일 탐색의 기본 흐름을 고정하는 것을 목표로 한다.
+본 작업은 이후 `storage`, `naming`, `logging` 구현이 안정적으로 이어질 수 있도록 장치 감지와 파일 탐색의 기본 흐름을 고정하는 것을 목표로 한다.
 
 ---
 
@@ -22,7 +22,7 @@
 - 장치 감지 → mount path 확인 → 지정 경로 탐색까지의 흐름 연결
 - 초기 버전의 탐색 결과 구조 작성
 
-이번 작업은 실제 MinIO 업로드, `src-extracted` relay 이동 처리, object key 계산, 대상 경로 규칙 계산까지 구현하지 않는다.
+이번 작업은 실제 MinIO 업로드, object key 계산까지 구현하지 않는다.
 
 ---
 
@@ -134,7 +134,7 @@ daemon/
 - Linux 계층 기준은 `udev`를 사용한다.
 - Java 연동 방식은 `libudev` + `JNA` 기준을 따른다.
 - 초기 구현은 단일 장치 처리 방식으로 제한한다.
-- `DeviceEventListener`는 업로드나 `relay` 같은 후속 기능 로직을 직접 포함하지 않는다.
+- `DeviceEventListener`는 업로드 같은 후속 기능 로직을 직접 포함하지 않는다.
 - `MountPathResolver`는 `mount path` 확인과 재시도까지만 담당한다.
 
 ### 8.2 mount path 확인 기준
@@ -153,7 +153,7 @@ daemon/
 <차량유형>/<수집날짜>/<차량유형-차량번호>/
 ```
 
-- `PcapScanner`는 업로드나 이동 로직을 직접 포함하지 않는다.
+- `PcapScanner`는 업로드 로직을 직접 포함하지 않는다.
 
 ### 8.4 ScanResult 기준
 - `ScanResult`는 이후 `storage` 단계가 활용할 수 있는 최소 정보를 제공해야 한다.
@@ -176,12 +176,11 @@ daemon/
 
 - `MinIO` 연결 구현
 - `ingest-staging` 업로드 구현
-- `src-extracted` relay 구현
 - `object key` 계산 구현
-- 대상 경로 규칙 계산 구현
 - 상세 로그 포맷 설계
 - 운영 서버별 대상 블록디바이스 식별 규칙의 최종 확정
 - 테스트 코드의 완전한 구현
+- `src-extracted` 관련 처리 구현
 
 ## 10. 완료 조건
 
@@ -210,7 +209,6 @@ daemon/
 이번 작업이 완료되면 다음 구현 작업으로 이어진다.
 
 - `storage` package 구현
-- `relay` package 구현
 - `naming` package 구현
 - `logging` package 구현
 
