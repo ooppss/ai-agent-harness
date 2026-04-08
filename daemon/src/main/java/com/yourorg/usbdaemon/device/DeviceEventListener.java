@@ -2,14 +2,10 @@ package com.yourorg.usbdaemon.device;
 
 import com.yourorg.usbdaemon.logging.ErrorLogger;
 import com.yourorg.usbdaemon.logging.DaemonLogger;
+import com.sun.jna.Pointer;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 public final class DeviceEventListener {
@@ -18,16 +14,22 @@ public final class DeviceEventListener {
         Optional<Path> awaitNextMountPath();
     }
 
+    @FunctionalInterface
+    interface DeviceNameAwaiter {
+        Optional<String> awaitNextDeviceName();
+    }
+
     private final MountPathResolver mountPathResolver;
     private final DaemonLogger daemonLogger;
     private final ErrorLogger errorLogger;
     private final MountPathAwaiter mountPathAwaiter;
+    private final DeviceNameAwaiter deviceNameAwaiter;
 
     public DeviceEventListener(
             MountPathResolver mountPathResolver,
             DaemonLogger daemonLogger,
             ErrorLogger errorLogger) {
-        this(mountPathResolver, daemonLogger, errorLogger, null);
+        this(mountPathResolver, daemonLogger, errorLogger, null, null);
     }
 
     public DeviceEventListener(
@@ -35,15 +37,32 @@ public final class DeviceEventListener {
             DaemonLogger daemonLogger,
             ErrorLogger errorLogger,
             MountPathAwaiter mountPathAwaiter) {
+        this(mountPathResolver, daemonLogger, errorLogger, mountPathAwaiter, null);
+    }
+
+    DeviceEventListener(
+            MountPathResolver mountPathResolver,
+            DaemonLogger daemonLogger,
+            ErrorLogger errorLogger,
+            MountPathAwaiter mountPathAwaiter,
+            DeviceNameAwaiter deviceNameAwaiter) {
         this.mountPathResolver = mountPathResolver;
-        this.daemonLogger = daemonLogger;
-        this.errorLogger = errorLogger;
+        this.daemonLogger = Objects.requireNonNull(daemonLogger, "daemonLogger");
+        this.errorLogger = Objects.requireNonNull(errorLogger, "errorLogger");
         this.mountPathAwaiter = mountPathAwaiter;
+        this.deviceNameAwaiter = deviceNameAwaiter != null
+                ? deviceNameAwaiter
+                : new LibUdevDeviceNameAwaiter(this.daemonLogger, this.errorLogger);
     }
 
     public Optional<Path> awaitNextMountPath() {
         if (mountPathAwaiter != null) {
             return mountPathAwaiter.awaitNextMountPath();
+        }
+
+        if (mountPathResolver == null) {
+            errorLogger.logFailure("MountPathResolver is required for operational device listening");
+            return Optional.empty();
         }
 
         Optional<Path> mountPath = mountPathResolver.resolveConfiguredMountPath();
@@ -52,7 +71,7 @@ public final class DeviceEventListener {
             return mountPath;
         }
 
-        Optional<String> deviceName = awaitNextDeviceNameFromUdev();
+        Optional<String> deviceName = deviceNameAwaiter.awaitNextDeviceName();
         if (deviceName.isEmpty()) {
             return Optional.empty();
         }
@@ -62,84 +81,122 @@ public final class DeviceEventListener {
         return mountPath;
     }
 
-    private Optional<String> awaitNextDeviceNameFromUdev() {
-        if (!isLinux()) {
-            errorLogger.logFailure("udev device listening is only supported on Linux");
-            return Optional.empty();
+    private static final class LibUdevDeviceNameAwaiter implements DeviceNameAwaiter {
+        private static final long POLL_INTERVAL_MILLIS = 200L;
+
+        private final DaemonLogger daemonLogger;
+        private final ErrorLogger errorLogger;
+
+        private LibUdevDeviceNameAwaiter(DaemonLogger daemonLogger, ErrorLogger errorLogger) {
+            this.daemonLogger = daemonLogger;
+            this.errorLogger = errorLogger;
         }
 
-        Process process = null;
-        try {
-            process = new ProcessBuilder("udevadm", "monitor", "--udev", "--subsystem-match=block", "--property")
-                    .redirectErrorStream(true)
-                    .start();
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                return readNextRelevantDevice(reader);
+        @Override
+        public Optional<String> awaitNextDeviceName() {
+            if (!isLinux()) {
+                errorLogger.logFailure("libudev device listening is only supported on Linux");
+                return Optional.empty();
             }
-        } catch (IOException exception) {
-            errorLogger.logFailure("Failed to start udev monitor process", exception);
-            return Optional.empty();
-        } finally {
-            if (process != null) {
-                process.destroy();
-            }
-        }
-    }
 
-    private Optional<String> readNextRelevantDevice(BufferedReader reader) throws IOException {
-        Map<String, String> properties = new LinkedHashMap<>();
-        String headerLine = null;
-        String line;
-
-        while ((line = reader.readLine()) != null) {
-            String trimmed = line.trim();
-            if (trimmed.isEmpty()) {
-                Optional<String> deviceName = resolveRelevantDevice(headerLine, properties);
-                if (deviceName.isPresent()) {
-                    return deviceName;
+            Pointer udev = null;
+            Pointer monitor = null;
+            try {
+                udev = LibUdev.INSTANCE.udev_new();
+                if (udev == null) {
+                    errorLogger.logFailure("Failed to initialize libudev context");
+                    return Optional.empty();
                 }
-                headerLine = null;
-                properties.clear();
-                continue;
+
+                monitor = LibUdev.INSTANCE.udev_monitor_new_from_netlink(udev, "udev");
+                if (monitor == null) {
+                    errorLogger.logFailure("Failed to create libudev monitor");
+                    return Optional.empty();
+                }
+
+                if (LibUdev.INSTANCE.udev_monitor_filter_add_match_subsystem_devtype(monitor, "block", null) != 0) {
+                    errorLogger.logFailure("Failed to configure libudev block filter");
+                    return Optional.empty();
+                }
+
+                if (LibUdev.INSTANCE.udev_monitor_enable_receiving(monitor) != 0) {
+                    errorLogger.logFailure("Failed to enable libudev monitor receiving");
+                    return Optional.empty();
+                }
+
+                while (!Thread.currentThread().isInterrupted()) {
+                    Pointer device = LibUdev.INSTANCE.udev_monitor_receive_device(monitor);
+                    if (device == null) {
+                        sleepQuietly();
+                        continue;
+                    }
+
+                    try {
+                        Optional<String> deviceName = resolveRelevantDevice(device);
+                        if (deviceName.isPresent()) {
+                            daemonLogger.logDeviceEventDetected(deviceName.get());
+                            return deviceName;
+                        }
+                    } finally {
+                        LibUdev.INSTANCE.udev_device_unref(device);
+                    }
+                }
+
+                Thread.currentThread().interrupt();
+                errorLogger.logFailure("libudev device listening was interrupted");
+                return Optional.empty();
+            } catch (UnsatisfiedLinkError exception) {
+                errorLogger.logFailure("Failed to load libudev native library", exception);
+                return Optional.empty();
+            } finally {
+                if (monitor != null) {
+                    LibUdev.INSTANCE.udev_monitor_unref(monitor);
+                }
+                if (udev != null) {
+                    LibUdev.INSTANCE.udev_unref(udev);
+                }
+            }
+        }
+
+        private Optional<String> resolveRelevantDevice(Pointer device) {
+            String action = nullToEmpty(LibUdev.INSTANCE.udev_device_get_action(device));
+            if (!"add".equals(action) && !"bind".equals(action)) {
+                return Optional.empty();
             }
 
-            if (trimmed.startsWith("UDEV")) {
-                headerLine = trimmed;
-                properties.clear();
-                continue;
+            String devNode = firstNonBlank(
+                    LibUdev.INSTANCE.udev_device_get_devnode(device),
+                    LibUdev.INSTANCE.udev_device_get_property_value(device, "DEVNAME"));
+            if (devNode == null) {
+                return Optional.empty();
             }
+            return Optional.of(devNode);
+        }
 
-            int separatorIndex = trimmed.indexOf('=');
-            if (separatorIndex > 0) {
-                properties.put(trimmed.substring(0, separatorIndex), trimmed.substring(separatorIndex + 1));
+        private void sleepQuietly() {
+            try {
+                Thread.sleep(POLL_INTERVAL_MILLIS);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
             }
         }
 
-        return resolveRelevantDevice(headerLine, properties);
-    }
-
-    private Optional<String> resolveRelevantDevice(String headerLine, Map<String, String> properties) {
-        if (headerLine == null || !headerLine.contains("(block)")) {
-            return Optional.empty();
+        private boolean isLinux() {
+            return System.getProperty("os.name", "").toLowerCase().contains("linux");
         }
 
-        String action = properties.get("ACTION");
-        if (!"add".equals(action) && !"bind".equals(action)) {
-            return Optional.empty();
+        private String nullToEmpty(String value) {
+            return value == null ? "" : value;
         }
 
-        String deviceName = properties.get("DEVNAME");
-        if (deviceName == null || deviceName.isBlank()) {
-            return Optional.empty();
+        private String firstNonBlank(String first, String second) {
+            if (first != null && !first.isBlank()) {
+                return first;
+            }
+            if (second != null && !second.isBlank()) {
+                return second;
+            }
+            return null;
         }
-
-        daemonLogger.logDeviceEventDetected(deviceName);
-        return Optional.of(deviceName);
-    }
-
-    private boolean isLinux() {
-        String osName = System.getProperty("os.name", "");
-        return osName.toLowerCase().contains("linux");
     }
 }

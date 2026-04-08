@@ -12,19 +12,32 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 public final class MountPathResolver {
     private static final Path PROC_MOUNTS = Path.of("/proc/self/mounts");
+    private static final Path PROC_MOUNTINFO = Path.of("/proc/self/mountinfo");
+
+    @FunctionalInterface
+    public interface MountTableReader {
+        List<MountEntry> readMountEntries() throws IOException;
+    }
 
     private final AppConfig config;
     private final DaemonLogger daemonLogger;
     private final ErrorLogger errorLogger;
+    private final MountTableReader mountTableReader;
 
     public MountPathResolver(AppConfig config, DaemonLogger daemonLogger, ErrorLogger errorLogger) {
+        this(config, daemonLogger, errorLogger, null);
+    }
+
+    MountPathResolver(AppConfig config, DaemonLogger daemonLogger, ErrorLogger errorLogger, MountTableReader mountTableReader) {
         this.config = config;
-        this.daemonLogger = daemonLogger;
-        this.errorLogger = errorLogger;
+        this.daemonLogger = Objects.requireNonNull(daemonLogger, "daemonLogger");
+        this.errorLogger = Objects.requireNonNull(errorLogger, "errorLogger");
+        this.mountTableReader = mountTableReader != null ? mountTableReader : this::readMountEntriesFromSystem;
     }
 
     public Optional<Path> resolveConfiguredMountPath() {
@@ -78,26 +91,60 @@ public final class MountPathResolver {
     }
 
     private List<MountEntry> readMountEntries() {
-        if (!Files.isRegularFile(PROC_MOUNTS)) {
-            return List.of();
-        }
-
         try {
-            List<MountEntry> entries = new ArrayList<>();
-            for (String line : Files.readAllLines(PROC_MOUNTS, StandardCharsets.UTF_8)) {
-                String[] tokens = line.split(" ");
-                if (tokens.length < 2) {
-                    continue;
-                }
-                String source = decodeMountToken(tokens[0]);
-                String mountPoint = decodeMountToken(tokens[1]);
-                entries.add(new MountEntry(source, Paths.get(mountPoint).normalize()));
-            }
-            return List.copyOf(entries);
+            return List.copyOf(mountTableReader.readMountEntries());
         } catch (IOException exception) {
             errorLogger.logMountPathFailure(config.getDeviceMountPath(), deviceNameOrUnknown(), "Failed to read mount table from " + PROC_MOUNTS);
             return List.of();
         }
+    }
+
+    private List<MountEntry> readMountEntriesFromSystem() throws IOException {
+        if (Files.isRegularFile(PROC_MOUNTINFO)) {
+            List<MountEntry> mountInfoEntries = readMountInfoEntries();
+            if (!mountInfoEntries.isEmpty()) {
+                return mountInfoEntries;
+            }
+        }
+        if (Files.isRegularFile(PROC_MOUNTS)) {
+            return readProcMountEntries();
+        }
+        return List.of();
+    }
+
+    private List<MountEntry> readMountInfoEntries() throws IOException {
+        List<MountEntry> entries = new ArrayList<>();
+        for (String line : Files.readAllLines(PROC_MOUNTINFO, StandardCharsets.UTF_8)) {
+            String[] separatorSplit = line.split(" - ", 2);
+            if (separatorSplit.length != 2) {
+                continue;
+            }
+
+            String[] left = separatorSplit[0].split(" ");
+            String[] right = separatorSplit[1].split(" ");
+            if (left.length < 5 || right.length < 2) {
+                continue;
+            }
+
+            String mountPoint = decodeMountToken(left[4]);
+            String source = decodeMountToken(right[1]);
+            entries.add(new MountEntry(source, Paths.get(mountPoint).normalize()));
+        }
+        return List.copyOf(entries);
+    }
+
+    private List<MountEntry> readProcMountEntries() throws IOException {
+        List<MountEntry> entries = new ArrayList<>();
+        for (String line : Files.readAllLines(PROC_MOUNTS, StandardCharsets.UTF_8)) {
+            String[] tokens = line.split(" ");
+            if (tokens.length < 2) {
+                continue;
+            }
+            String source = decodeMountToken(tokens[0]);
+            String mountPoint = decodeMountToken(tokens[1]);
+            entries.add(new MountEntry(source, Paths.get(mountPoint).normalize()));
+        }
+        return List.copyOf(entries);
     }
 
     private String deviceNameOrUnknown() {
@@ -129,10 +176,13 @@ public final class MountPathResolver {
         }
     }
 
-    private record MountEntry(String source, Path mountPoint) {
+    public record MountEntry(String source, Path mountPoint) {
         private boolean matchesDevice(String deviceName) {
+            String normalizedDevice = deviceName.startsWith("/dev/") ? deviceName : "/dev/" + deviceName;
             return source.equals(deviceName)
+                    || source.equals(normalizedDevice)
                     || source.startsWith(deviceName + "/")
+                    || source.startsWith(normalizedDevice + "/")
                     || source.startsWith(deviceName + "p");
         }
     }
