@@ -29,7 +29,13 @@ class IngestUploaderTest {
                     uploadedSource.set(sourceFile);
                     uploadedBucket.set(bucket);
                     uploadedObjectKey.set(objectKey);
-                    return new MinioStorageClient.StorageResponse(bucket, objectKey, true, "ok", "etag-1", null);
+                    return new MinioStorageClient.StorageResponse(
+                            bucket,
+                            objectKey,
+                            MinioStorageClient.StorageStatus.SUCCESS,
+                            "ok",
+                            "etag-1",
+                            null);
                 },
                 new ObjectKeyBuilder(),
                 new DaemonLogger(),
@@ -50,12 +56,14 @@ class IngestUploaderTest {
         assertTrue(result.isSuccessful());
         assertEquals(1, result.totalCount());
         assertEquals(1, result.successCount());
+        assertEquals(0, result.skippedCount());
         assertEquals(0, result.failureCount());
         assertEquals(pcapFile, uploadedSource.get());
         assertEquals("ingest-staging", uploadedBucket.get());
         assertEquals(
                 "U100/2026/03/27/260327_v009/cam_a_1_20260327112330.pcap",
                 uploadedObjectKey.get());
+        assertTrue(result.results().get(0).isSuccess());
     }
 
     @Test
@@ -69,9 +77,21 @@ class IngestUploaderTest {
                     int current = invocationCount.get();
                     invocationCount.set(current + 1);
                     if (current == 0) {
-                        return new MinioStorageClient.StorageResponse(bucket, objectKey, true, "ok", "etag-1", null);
+                        return new MinioStorageClient.StorageResponse(
+                                bucket,
+                                objectKey,
+                                MinioStorageClient.StorageStatus.SUCCESS,
+                                "ok",
+                                "etag-1",
+                                null);
                     }
-                    return new MinioStorageClient.StorageResponse(bucket, objectKey, false, "upload failed", null, null);
+                    return new MinioStorageClient.StorageResponse(
+                            bucket,
+                            objectKey,
+                            MinioStorageClient.StorageStatus.FAILURE,
+                            "upload failed",
+                            null,
+                            null);
                 },
                 new ObjectKeyBuilder(),
                 new DaemonLogger(),
@@ -93,10 +113,49 @@ class IngestUploaderTest {
         assertFalse(result.isSuccessful());
         assertEquals(2, result.totalCount());
         assertEquals(1, result.successCount());
+        assertEquals(0, result.skippedCount());
         assertEquals(1, result.failureCount());
         assertEquals(2, result.results().size());
-        assertTrue(result.results().get(0).success());
-        assertFalse(result.results().get(1).success());
+        assertTrue(result.results().get(0).isSuccess());
+        assertTrue(result.results().get(1).isFailure());
+    }
+
+    @Test
+    void skipsDuplicateObjectWithoutFailingBatch() {
+        AppConfig appConfig = testConfig();
+
+        IngestUploader ingestUploader = new IngestUploader(
+                appConfig,
+                (sourceFile, bucket, objectKey) -> new MinioStorageClient.StorageResponse(
+                        bucket,
+                        objectKey,
+                        MinioStorageClient.StorageStatus.SKIPPED,
+                        "Object already exists. Upload skipped",
+                        null,
+                        null),
+                new ObjectKeyBuilder(),
+                new DaemonLogger(),
+                new ErrorLogger());
+
+        Path mountPath = Path.of("/mnt/storage-device");
+        Path pcapFile = mountPath.resolve("U100/20260327/U100-009/cam_a_1_20260327112330.pcap");
+        ScanResult scanResult = new ScanResult(
+                ScanResult.Status.SUCCESS,
+                mountPath,
+                mountPath.resolve("U100/20260327/U100-009"),
+                List.of(pcapFile),
+                "pcap files found",
+                1);
+
+        IngestUploader.UploadBatchResult result = ingestUploader.upload(scanResult);
+
+        assertTrue(result.isSuccessful());
+        assertEquals(1, result.totalCount());
+        assertEquals(0, result.successCount());
+        assertEquals(1, result.skippedCount());
+        assertEquals(0, result.failureCount());
+        assertEquals("Upload batch completed with skipped duplicate objects", result.detailMessage());
+        assertTrue(result.results().get(0).isSkipped());
     }
 
     @Test
@@ -108,7 +167,13 @@ class IngestUploaderTest {
                 appConfig,
                 (sourceFile, bucket, objectKey) -> {
                     uploadCalled.set(true);
-                    return new MinioStorageClient.StorageResponse(bucket, objectKey, true, "ok", "etag-1", null);
+                    return new MinioStorageClient.StorageResponse(
+                            bucket,
+                            objectKey,
+                            MinioStorageClient.StorageStatus.SUCCESS,
+                            "ok",
+                            "etag-1",
+                            null);
                 },
                 new ObjectKeyBuilder(),
                 new DaemonLogger(),
@@ -127,6 +192,7 @@ class IngestUploaderTest {
         assertFalse(uploadCalled.get());
         assertTrue(result.isSuccessful());
         assertEquals(0, result.totalCount());
+        assertEquals(0, result.skippedCount());
         assertEquals("Upload skipped because scan result was not successful", result.detailMessage());
     }
 

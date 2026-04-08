@@ -4,7 +4,9 @@ import com.yourorg.usbdaemon.config.AppConfig;
 import io.minio.BucketExistsArgs;
 import io.minio.MinioClient;
 import io.minio.ObjectWriteResponse;
+import io.minio.StatObjectArgs;
 import io.minio.UploadObjectArgs;
+import io.minio.errors.ErrorResponseException;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -28,18 +30,28 @@ public final class MinioStorageClient {
 
     public StorageResponse upload(Path sourceFile, String bucket, String objectKey) {
         if (!Files.isRegularFile(sourceFile)) {
-            return new StorageResponse(bucket, objectKey, false, "Source file does not exist or is not a regular file", null, null);
+            return new StorageResponse(bucket, objectKey, StorageStatus.FAILURE, "Source file does not exist or is not a regular file", null, null);
         }
         if (bucket == null || bucket.isBlank()) {
-            return new StorageResponse(bucket, objectKey, false, "Bucket name must not be blank", null, null);
+            return new StorageResponse(bucket, objectKey, StorageStatus.FAILURE, "Bucket name must not be blank", null, null);
         }
         if (objectKey == null || objectKey.isBlank()) {
-            return new StorageResponse(bucket, objectKey, false, "Object key must not be blank", null, null);
+            return new StorageResponse(bucket, objectKey, StorageStatus.FAILURE, "Object key must not be blank", null, null);
         }
 
         try {
             if (!bucketExists(bucket)) {
-                return new StorageResponse(bucket, objectKey, false, "Bucket does not exist", null, null);
+                return new StorageResponse(bucket, objectKey, StorageStatus.FAILURE, "Bucket does not exist", null, null);
+            }
+
+            if (objectExists(bucket, objectKey)) {
+                return new StorageResponse(
+                        bucket,
+                        objectKey,
+                        StorageStatus.SKIPPED,
+                        "Object already exists. Upload skipped",
+                        null,
+                        null);
             }
 
             ObjectWriteResponse response = minioClient.uploadObject(
@@ -53,7 +65,7 @@ public final class MinioStorageClient {
             return new StorageResponse(
                     bucket,
                     objectKey,
-                    true,
+                    StorageStatus.SUCCESS,
                     "Upload completed",
                     response.etag(),
                     response.versionId());
@@ -61,7 +73,7 @@ public final class MinioStorageClient {
             return new StorageResponse(
                     bucket,
                     objectKey,
-                    false,
+                    StorageStatus.FAILURE,
                     exception.getClass().getSimpleName() + ": " + exception.getMessage(),
                     null,
                     null);
@@ -72,12 +84,46 @@ public final class MinioStorageClient {
         return minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucket).build());
     }
 
+    public boolean objectExists(String bucket, String objectKey) throws Exception {
+        try {
+            minioClient.statObject(
+                    StatObjectArgs.builder()
+                            .bucket(bucket)
+                            .object(objectKey)
+                            .build());
+            return true;
+        } catch (ErrorResponseException exception) {
+            String errorCode = exception.errorResponse().code();
+            if ("NoSuchKey".equals(errorCode) || "NoSuchObject".equals(errorCode)) {
+                return false;
+            }
+            throw exception;
+        }
+    }
+
+    public enum StorageStatus {
+        SUCCESS,
+        SKIPPED,
+        FAILURE
+    }
+
     public record StorageResponse(
             String bucket,
             String objectKey,
-            boolean success,
+            StorageStatus status,
             String detailMessage,
             String etag,
             String versionId) {
+        public boolean isSuccess() {
+            return status == StorageStatus.SUCCESS;
+        }
+
+        public boolean isSkipped() {
+            return status == StorageStatus.SKIPPED;
+        }
+
+        public boolean isFailure() {
+            return status == StorageStatus.FAILURE;
+        }
     }
 }

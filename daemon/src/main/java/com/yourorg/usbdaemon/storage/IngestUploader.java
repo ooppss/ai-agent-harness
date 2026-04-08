@@ -52,12 +52,14 @@ public final class IngestUploader {
                     0,
                     0,
                     0,
+                    0,
                     List.of(),
                     "Upload skipped because scan result was not successful");
         }
 
         List<UploadResult> results = new ArrayList<>();
         int successCount = 0;
+        int skippedCount = 0;
         for (Path pcapFile : scanResult.getPcapFiles()) {
             try {
                 String objectKey = objectKeyBuilder.build(scanResult.getMountPath(), pcapFile);
@@ -65,8 +67,11 @@ public final class IngestUploader {
                 daemonLogger.logUploadStart(pcapFile, config.getIngestBucket(), objectKey);
                 MinioStorageClient.StorageResponse response =
                         uploadExecutor.upload(pcapFile, config.getIngestBucket(), objectKey);
-                if (!response.success()) {
+                if (response.isFailure()) {
                     errorLogger.logUploadFailure(pcapFile, response.bucket(), response.objectKey(), response.detailMessage());
+                } else if (response.isSkipped()) {
+                    skippedCount++;
+                    daemonLogger.logUploadSkipped(pcapFile, response.bucket(), response.objectKey(), response.detailMessage());
                 } else {
                     successCount++;
                 }
@@ -74,13 +79,13 @@ public final class IngestUploader {
                         pcapFile,
                         response.bucket(),
                         response.objectKey(),
-                        response.success(),
+                        response.isSuccess(),
                         response.etag());
                 results.add(new UploadResult(
                         pcapFile,
                         response.bucket(),
                         response.objectKey(),
-                        response.success(),
+                        response.status(),
                         response.detailMessage(),
                         response.etag(),
                         response.versionId()));
@@ -90,7 +95,7 @@ public final class IngestUploader {
                         pcapFile,
                         config.getIngestBucket(),
                         null,
-                        false,
+                        MinioStorageClient.StorageStatus.FAILURE,
                         exception.getMessage(),
                         null,
                         null));
@@ -98,14 +103,17 @@ public final class IngestUploader {
         }
 
         int totalCount = results.size();
-        int failureCount = totalCount - successCount;
+        int failureCount = totalCount - successCount - skippedCount;
         String detailMessage = failureCount == 0
-                ? "All upload requests completed successfully"
+                ? (skippedCount == 0
+                        ? "All upload requests completed successfully"
+                        : "Upload batch completed with skipped duplicate objects")
                 : "One or more upload requests failed";
         UploadBatchResult uploadBatchResult = new UploadBatchResult(
                 config.getIngestBucket(),
                 totalCount,
                 successCount,
+                skippedCount,
                 failureCount,
                 List.copyOf(results),
                 detailMessage);
@@ -113,6 +121,7 @@ public final class IngestUploader {
                 uploadBatchResult.bucket(),
                 uploadBatchResult.totalCount(),
                 uploadBatchResult.successCount(),
+                uploadBatchResult.skippedCount(),
                 uploadBatchResult.failureCount(),
                 uploadBatchResult.detailMessage());
         return uploadBatchResult;
@@ -122,6 +131,7 @@ public final class IngestUploader {
             String bucket,
             int totalCount,
             int successCount,
+            int skippedCount,
             int failureCount,
             List<UploadResult> results,
             String detailMessage) {
@@ -134,9 +144,20 @@ public final class IngestUploader {
             Path sourceFile,
             String bucket,
             String objectKey,
-            boolean success,
+            MinioStorageClient.StorageStatus status,
             String detailMessage,
             String etag,
             String versionId) {
+        public boolean isSuccess() {
+            return status == MinioStorageClient.StorageStatus.SUCCESS;
+        }
+
+        public boolean isSkipped() {
+            return status == MinioStorageClient.StorageStatus.SKIPPED;
+        }
+
+        public boolean isFailure() {
+            return status == MinioStorageClient.StorageStatus.FAILURE;
+        }
     }
 }

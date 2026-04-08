@@ -53,10 +53,18 @@ public final class DaemonLogger {
                 + ", etag=" + etag);
     }
 
-    public void logUploadBatchFinish(String bucket, int totalCount, int successCount, int failureCount, String detailMessage) {
+    public void logUploadSkipped(Path source, String bucket, String objectKey, String detailMessage) {
+        logger.info(() -> "Skipped upload. source=" + source
+                + ", bucket=" + bucket
+                + ", objectKey=" + objectKey
+                + ", detail=" + detailMessage);
+    }
+
+    public void logUploadBatchFinish(String bucket, int totalCount, int successCount, int skippedCount, int failureCount, String detailMessage) {
         logger.info(() -> "Finished upload batch. bucket=" + bucket
                 + ", totalCount=" + totalCount
                 + ", successCount=" + successCount
+                + ", skippedCount=" + skippedCount
                 + ", failureCount=" + failureCount
                 + ", detail=" + detailMessage);
     }
