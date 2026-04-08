@@ -12,11 +12,16 @@ import java.util.List;
 import java.util.Objects;
 
 public final class IngestUploader {
+    @FunctionalInterface
+    interface UploadExecutor {
+        MinioStorageClient.StorageResponse upload(Path sourceFile, String bucket, String objectKey);
+    }
+
     private final AppConfig config;
-    private final MinioStorageClient minioStorageClient;
     private final ObjectKeyBuilder objectKeyBuilder;
     private final DaemonLogger daemonLogger;
     private final ErrorLogger errorLogger;
+    private final UploadExecutor uploadExecutor;
 
     public IngestUploader(
             AppConfig config,
@@ -24,8 +29,17 @@ public final class IngestUploader {
             ObjectKeyBuilder objectKeyBuilder,
             DaemonLogger daemonLogger,
             ErrorLogger errorLogger) {
+        this(config, minioStorageClient::upload, objectKeyBuilder, daemonLogger, errorLogger);
+    }
+
+    IngestUploader(
+            AppConfig config,
+            UploadExecutor uploadExecutor,
+            ObjectKeyBuilder objectKeyBuilder,
+            DaemonLogger daemonLogger,
+            ErrorLogger errorLogger) {
         this.config = Objects.requireNonNull(config, "config");
-        this.minioStorageClient = Objects.requireNonNull(minioStorageClient, "minioStorageClient");
+        this.uploadExecutor = Objects.requireNonNull(uploadExecutor, "uploadExecutor");
         this.objectKeyBuilder = Objects.requireNonNull(objectKeyBuilder, "objectKeyBuilder");
         this.daemonLogger = Objects.requireNonNull(daemonLogger, "daemonLogger");
         this.errorLogger = Objects.requireNonNull(errorLogger, "errorLogger");
@@ -50,7 +64,7 @@ public final class IngestUploader {
                 daemonLogger.logObjectKeyBuilt(pcapFile, objectKey);
                 daemonLogger.logUploadStart(pcapFile, config.getIngestBucket(), objectKey);
                 MinioStorageClient.StorageResponse response =
-                        minioStorageClient.upload(pcapFile, config.getIngestBucket(), objectKey);
+                        uploadExecutor.upload(pcapFile, config.getIngestBucket(), objectKey);
                 if (!response.success()) {
                     errorLogger.logUploadFailure(pcapFile, response.bucket(), response.objectKey(), response.detailMessage());
                 } else {
