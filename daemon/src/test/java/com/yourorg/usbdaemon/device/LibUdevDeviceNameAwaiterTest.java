@@ -37,8 +37,8 @@ class LibUdevDeviceNameAwaiterTest {
     @Test
     void waitsForRelevantAddEventAndReturnsDevnode() {
         FakeLibUdevFacade libUdevFacade = new FakeLibUdevFacade();
-        Pointer ignoredDevice = libUdevFacade.enqueueDevice("change", "/dev/sda1", null, "usb", "disk");
-        Pointer expectedDevice = libUdevFacade.enqueueDevice("add", "/dev/sdb1", null, "usb", "disk");
+        Pointer ignoredDevice = libUdevFacade.enqueueDevice("change", "/dev/sda1", null, "usb", "block", "disk");
+        Pointer expectedDevice = libUdevFacade.enqueueDevice("add", "/dev/sdb1", null, "usb", "block", "disk");
         AtomicInteger sleepCount = new AtomicInteger();
 
         DeviceEventListener.LibUdevDeviceNameAwaiter awaiter = new DeviceEventListener.LibUdevDeviceNameAwaiter(
@@ -61,9 +61,9 @@ class LibUdevDeviceNameAwaiterTest {
     }
 
     @Test
-    void usesDevnamePropertyForBindEventWhenDevnodeIsMissing() {
+    void usesDevnamePropertyForAddPartitionEventWhenDevnodeIsMissing() {
         FakeLibUdevFacade libUdevFacade = new FakeLibUdevFacade();
-        libUdevFacade.enqueueDevice("bind", null, "/dev/sdc1", "usb", "partition");
+        libUdevFacade.enqueueDevice("add", null, "/dev/sdc1", "usb", "block", "partition");
 
         DeviceEventListener.LibUdevDeviceNameAwaiter awaiter = new DeviceEventListener.LibUdevDeviceNameAwaiter(
                 new DaemonLogger(),
@@ -82,7 +82,7 @@ class LibUdevDeviceNameAwaiterTest {
     @Test
     void ignoresNonUsbBlockDeviceEvents() {
         FakeLibUdevFacade libUdevFacade = new FakeLibUdevFacade();
-        libUdevFacade.enqueueDevice("add", "/dev/sdb1", null, "ata", "disk");
+        libUdevFacade.enqueueDevice("add", "/dev/sdb1", null, "ata", "block", "disk");
 
         DeviceEventListener.LibUdevDeviceNameAwaiter awaiter = new DeviceEventListener.LibUdevDeviceNameAwaiter(
                 new DaemonLogger(),
@@ -96,6 +96,62 @@ class LibUdevDeviceNameAwaiterTest {
         assertFalse(deviceName.isPresent());
     }
 
+    @Test
+    void ignoresNonBlockUsbEvents() {
+        FakeLibUdevFacade libUdevFacade = new FakeLibUdevFacade();
+        libUdevFacade.enqueueDevice("add", "/dev/sdb1", null, "usb", "net", "disk");
+
+        DeviceEventListener.LibUdevDeviceNameAwaiter awaiter = new DeviceEventListener.LibUdevDeviceNameAwaiter(
+                new DaemonLogger(),
+                new ErrorLogger(),
+                libUdevFacade,
+                () -> true,
+                millis -> Thread.currentThread().interrupt());
+
+        Optional<String> deviceName = awaiter.awaitNextUsbStorageDevice();
+
+        assertFalse(deviceName.isPresent());
+    }
+
+    @Test
+    void prefersPartitionCandidateOverDiskCandidate() {
+        FakeLibUdevFacade libUdevFacade = new FakeLibUdevFacade();
+        libUdevFacade.enqueueDevice("add", "/dev/sdb", null, "usb", "block", "disk");
+        libUdevFacade.enqueueDevice("add", "/dev/sdb1", null, "usb", "block", "partition");
+
+        DeviceEventListener.LibUdevDeviceNameAwaiter awaiter = new DeviceEventListener.LibUdevDeviceNameAwaiter(
+                new DaemonLogger(),
+                new ErrorLogger(),
+                libUdevFacade,
+                () -> true,
+                millis -> {
+                });
+
+        Optional<String> deviceName = awaiter.awaitNextUsbStorageDevice();
+
+        assertTrue(deviceName.isPresent());
+        assertEquals("/dev/sdb1", deviceName.get());
+    }
+
+    @Test
+    void fallsBackToDiskCandidateWhenPartitionCandidateDoesNotArrive() {
+        FakeLibUdevFacade libUdevFacade = new FakeLibUdevFacade();
+        libUdevFacade.enqueueDevice("add", "/dev/sdb", null, "usb", "block", "disk");
+
+        DeviceEventListener.LibUdevDeviceNameAwaiter awaiter = new DeviceEventListener.LibUdevDeviceNameAwaiter(
+                new DaemonLogger(),
+                new ErrorLogger(),
+                libUdevFacade,
+                () -> true,
+                millis -> {
+                });
+
+        Optional<String> deviceName = awaiter.awaitNextUsbStorageDevice();
+
+        assertTrue(deviceName.isPresent());
+        assertEquals("/dev/sdb", deviceName.get());
+    }
+
     private static final class FakeLibUdevFacade implements DeviceEventListener.LibUdevFacade {
         private final Pointer udev = new Pointer(1);
         private final Pointer monitor = new Pointer(2);
@@ -104,6 +160,7 @@ class LibUdevDeviceNameAwaiterTest {
         private final Map<Pointer, String> devnodes = new HashMap<>();
         private final Map<Pointer, String> devnames = new HashMap<>();
         private final Map<Pointer, String> buses = new HashMap<>();
+        private final Map<Pointer, String> subsystems = new HashMap<>();
         private final Map<Pointer, String> devtypes = new HashMap<>();
         private final Map<Pointer, Boolean> unrefedDevices = new HashMap<>();
         private int nullPollsRemaining = 1;
@@ -113,12 +170,13 @@ class LibUdevDeviceNameAwaiterTest {
         private int deviceUnrefCount;
         private long pointerValue = 10;
 
-        Pointer enqueueDevice(String action, String devnode, String devname, String bus, String devtype) {
+        Pointer enqueueDevice(String action, String devnode, String devname, String bus, String subsystem, String devtype) {
             Pointer device = new Pointer(pointerValue++);
             actions.put(device, action);
             devnodes.put(device, devnode);
             devnames.put(device, devname);
             buses.put(device, bus);
+            subsystems.put(device, subsystem);
             devtypes.put(device, devtype);
             receiveQueue.add(device);
             return device;
@@ -183,6 +241,9 @@ class LibUdevDeviceNameAwaiterTest {
             }
             if ("ID_BUS".equals(key)) {
                 return buses.get(device);
+            }
+            if ("SUBSYSTEM".equals(key) || "ID_SUBSYSTEM".equals(key)) {
+                return subsystems.get(device);
             }
             if ("DEVTYPE".equals(key)) {
                 return devtypes.get(device);

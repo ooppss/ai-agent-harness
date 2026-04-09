@@ -237,19 +237,28 @@ public final class DeviceEventListener {
                     return Optional.empty();
                 }
 
+                String diskFallbackDeviceName = null;
                 while (!Thread.currentThread().isInterrupted()) {
                     Pointer device = libUdevFacade.monitorReceiveDevice(monitor);
                     if (device == null) {
+                        if (diskFallbackDeviceName != null) {
+                            daemonLogger.logUsbStorageDetected(diskFallbackDeviceName);
+                            return Optional.of(diskFallbackDeviceName);
+                        }
                         sleepQuietly();
                         continue;
                     }
 
                     try {
-                        Optional<String> deviceName = resolveRelevantUsbStorageDevice(device);
-                        if (deviceName.isPresent()) {
-                            daemonLogger.logUsbStorageDetected(deviceName.get());
-                            return deviceName;
+                        UsbStorageDeviceCandidate candidate = resolveRelevantUsbStorageDevice(device);
+                        if (candidate == null) {
+                            continue;
                         }
+                        if (candidate.isPreferredPartition()) {
+                            daemonLogger.logUsbStorageDetected(candidate.deviceName());
+                            return Optional.of(candidate.deviceName());
+                        }
+                        diskFallbackDeviceName = candidate.deviceName();
                     } finally {
                         libUdevFacade.deviceUnref(device);
                     }
@@ -271,31 +280,38 @@ public final class DeviceEventListener {
             }
         }
 
-        private Optional<String> resolveRelevantUsbStorageDevice(Pointer device) {
+        private UsbStorageDeviceCandidate resolveRelevantUsbStorageDevice(Pointer device) {
             String action = nullToEmpty(libUdevFacade.deviceGetAction(device));
-            if (!"add".equals(action) && !"bind".equals(action)) {
-                return Optional.empty();
+            if (!"add".equals(action)) {
+                return null;
+            }
+
+            String subsystem = firstNonBlank(
+                    libUdevFacade.deviceGetPropertyValue(device, "SUBSYSTEM"),
+                    libUdevFacade.deviceGetPropertyValue(device, "ID_SUBSYSTEM"));
+            if (subsystem != null && !"block".equalsIgnoreCase(subsystem)) {
+                return null;
             }
 
             String bus = nullToEmpty(libUdevFacade.deviceGetPropertyValue(device, "ID_BUS"));
             if (!"usb".equalsIgnoreCase(bus)) {
-                return Optional.empty();
+                return null;
             }
 
             String devType = nullToEmpty(libUdevFacade.deviceGetPropertyValue(device, "DEVTYPE"));
-            if (!devType.isBlank()
-                    && !"disk".equalsIgnoreCase(devType)
-                    && !"partition".equalsIgnoreCase(devType)) {
-                return Optional.empty();
+            boolean preferredPartition = "partition".equalsIgnoreCase(devType);
+            boolean allowedDisk = "disk".equalsIgnoreCase(devType);
+            if (!devType.isBlank() && !preferredPartition && !allowedDisk) {
+                return null;
             }
 
             String devNode = firstNonBlank(
                     libUdevFacade.deviceGetDevnode(device),
                     libUdevFacade.deviceGetPropertyValue(device, "DEVNAME"));
             if (devNode == null) {
-                return Optional.empty();
+                return null;
             }
-            return Optional.of(devNode);
+            return new UsbStorageDeviceCandidate(devNode, preferredPartition);
         }
 
         private void sleepQuietly() {
@@ -318,6 +334,9 @@ public final class DeviceEventListener {
                 return second;
             }
             return null;
+        }
+
+        private record UsbStorageDeviceCandidate(String deviceName, boolean isPreferredPartition) {
         }
     }
 }

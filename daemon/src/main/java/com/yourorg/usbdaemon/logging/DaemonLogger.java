@@ -11,7 +11,7 @@ public final class DaemonLogger {
     }
 
     public void logUsbStorageDetected(String deviceName) {
-        logger.info(() -> "Detected USB storage connection event. deviceName=" + deviceName);
+        logger.info(() -> "Detected USB storage add event candidate. deviceName=" + deviceName);
     }
 
     public void logStoragePathRetry(Path configuredPath, String deviceName, int attemptNumber, int maxAttempts) {

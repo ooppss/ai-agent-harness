@@ -20,7 +20,7 @@ public final class ErrorLogger {
     }
 
     public void logStoragePathUnavailable(Path configuredPath, String deviceName, String detailMessage) {
-        logger.severe(() -> "File-browsable storage path confirmation failure. configuredPath=" + configuredPath
+        logger.severe(() -> "File-browsable storage path confirmation failure after mountinfo/mounts lookup. configuredPath=" + configuredPath
                 + ", deviceName=" + deviceName
                 + ", detail=" + detailMessage);
     }
