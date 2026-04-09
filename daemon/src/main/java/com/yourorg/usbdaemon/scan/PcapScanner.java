@@ -23,18 +23,18 @@ public final class PcapScanner {
         this.errorLogger = errorLogger;
     }
 
-    public ScanResult scan(Path mountPath) {
-        Path targetPath = resolveTargetPath(mountPath);
-        daemonLogger.logScanStart(mountPath, targetPath);
+    public ScanResult scan(Path storagePath) {
+        Path targetPath = resolveTargetPath(storagePath);
+        daemonLogger.logScanStart(storagePath, targetPath);
 
-        if (!targetPath.startsWith(mountPath.normalize())) {
-            errorLogger.logScanFailure(targetPath, "Resolved target path escapes mount path");
+        if (!targetPath.startsWith(storagePath.normalize())) {
+            errorLogger.logScanFailure(targetPath, "Resolved target path escapes storage path");
             return new ScanResult(
                     ScanResult.Status.FAILED,
-                    mountPath,
+                    storagePath,
                     targetPath,
                     List.of(),
-                    "Resolved target path escapes mount path",
+                    "Resolved target path escapes storage path",
                     0);
         }
 
@@ -42,7 +42,7 @@ public final class PcapScanner {
             errorLogger.logScanFailure(targetPath, "Target scan directory does not exist");
             return new ScanResult(
                     ScanResult.Status.TARGET_DIRECTORY_MISSING,
-                    mountPath,
+                    storagePath,
                     targetPath,
                     List.of(),
                     "Target scan directory does not exist",
@@ -58,7 +58,7 @@ public final class PcapScanner {
                     ? ScanResult.Status.NO_PCAP_FILES
                     : ScanResult.Status.SUCCESS;
             daemonLogger.logScanFinish(
-                    mountPath,
+                    storagePath,
                     targetPath,
                     discovery.pcapFiles().size(),
                     discovery.scannedDirectoryCount(),
@@ -67,17 +67,17 @@ public final class PcapScanner {
             if (discovery.pcapFiles().isEmpty()) {
                 errorLogger.logScanFailure(targetPath, "No pcap files were found under target path");
                 return new ScanResult(
-                        ScanResult.Status.NO_PCAP_FILES,
-                        mountPath,
-                        targetPath,
-                        List.of(),
-                        "No pcap files were found under target path",
+                    ScanResult.Status.NO_PCAP_FILES,
+                    storagePath,
+                    targetPath,
+                    List.of(),
+                    "No pcap files were found under target path",
                         discovery.scannedDirectoryCount());
             }
 
             return new ScanResult(
                     ScanResult.Status.SUCCESS,
-                    mountPath,
+                    storagePath,
                     targetPath,
                     discovery.pcapFiles(),
                     "pcap files found",
@@ -86,7 +86,7 @@ public final class PcapScanner {
             errorLogger.logScanFailure(targetPath, "Failed to scan pcap files under target path", exception);
             return new ScanResult(
                     ScanResult.Status.FAILED,
-                    mountPath,
+                    storagePath,
                     targetPath,
                     List.of(),
                     "Scan failed: " + exception.getMessage(),
@@ -94,9 +94,9 @@ public final class PcapScanner {
         }
     }
 
-    private Path resolveTargetPath(Path mountPath) {
+    private Path resolveTargetPath(Path storagePath) {
         String relativePath = config.getScanRelativePath();
-        return relativePath.isBlank() ? mountPath : mountPath.resolve(relativePath).normalize();
+        return relativePath.isBlank() ? storagePath : storagePath.resolve(relativePath).normalize();
     }
 
     private ScanDiscovery discoverFromConfiguredTarget(Path targetPath) throws IOException {
@@ -110,13 +110,13 @@ public final class PcapScanner {
         }
     }
 
-    private ScanDiscovery discoverByDocumentedStructure(Path mountPath) throws IOException {
+    private ScanDiscovery discoverByDocumentedStructure(Path storagePath) throws IOException {
         List<Path> candidateDirectories;
-        try (Stream<Path> pathStream = Files.walk(mountPath, 3)) {
+        try (Stream<Path> pathStream = Files.walk(storagePath, 3)) {
             candidateDirectories = pathStream
                     .filter(Files::isDirectory)
-                    .filter(path -> !path.equals(mountPath))
-                    .filter(path -> mountPath.relativize(path).getNameCount() == 3)
+                    .filter(path -> !path.equals(storagePath))
+                    .filter(path -> storagePath.relativize(path).getNameCount() == 3)
                     .sorted()
                     .toList();
         }

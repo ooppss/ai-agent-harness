@@ -10,13 +10,13 @@ import java.util.Optional;
 
 public final class DeviceEventListener {
     @FunctionalInterface
-    public interface MountPathAwaiter {
-        Optional<Path> awaitNextMountPath();
+    public interface StoragePathAwaiter {
+        Optional<Path> awaitNextStoragePath();
     }
 
     @FunctionalInterface
-    interface DeviceNameAwaiter {
-        Optional<String> awaitNextDeviceName();
+    interface UsbStorageDeviceAwaiter {
+        Optional<String> awaitNextUsbStorageDevice();
     }
 
     @FunctionalInterface
@@ -115,8 +115,8 @@ public final class DeviceEventListener {
     private final MountPathResolver mountPathResolver;
     private final DaemonLogger daemonLogger;
     private final ErrorLogger errorLogger;
-    private final MountPathAwaiter mountPathAwaiter;
-    private final DeviceNameAwaiter deviceNameAwaiter;
+    private final StoragePathAwaiter storagePathAwaiter;
+    private final UsbStorageDeviceAwaiter usbStorageDeviceAwaiter;
 
     public DeviceEventListener(
             MountPathResolver mountPathResolver,
@@ -129,52 +129,52 @@ public final class DeviceEventListener {
             MountPathResolver mountPathResolver,
             DaemonLogger daemonLogger,
             ErrorLogger errorLogger,
-            MountPathAwaiter mountPathAwaiter) {
-        this(mountPathResolver, daemonLogger, errorLogger, mountPathAwaiter, null);
+            StoragePathAwaiter storagePathAwaiter) {
+        this(mountPathResolver, daemonLogger, errorLogger, storagePathAwaiter, null);
     }
 
     DeviceEventListener(
             MountPathResolver mountPathResolver,
             DaemonLogger daemonLogger,
             ErrorLogger errorLogger,
-            MountPathAwaiter mountPathAwaiter,
-            DeviceNameAwaiter deviceNameAwaiter) {
+            StoragePathAwaiter storagePathAwaiter,
+            UsbStorageDeviceAwaiter usbStorageDeviceAwaiter) {
         this.mountPathResolver = mountPathResolver;
         this.daemonLogger = Objects.requireNonNull(daemonLogger, "daemonLogger");
         this.errorLogger = Objects.requireNonNull(errorLogger, "errorLogger");
-        this.mountPathAwaiter = mountPathAwaiter;
-        this.deviceNameAwaiter = deviceNameAwaiter != null
-                ? deviceNameAwaiter
+        this.storagePathAwaiter = storagePathAwaiter;
+        this.usbStorageDeviceAwaiter = usbStorageDeviceAwaiter != null
+                ? usbStorageDeviceAwaiter
                 : new LibUdevDeviceNameAwaiter(this.daemonLogger, this.errorLogger);
     }
 
-    public Optional<Path> awaitNextMountPath() {
-        if (mountPathAwaiter != null) {
-            return mountPathAwaiter.awaitNextMountPath();
+    public Optional<Path> awaitNextStoragePath() {
+        if (storagePathAwaiter != null) {
+            return storagePathAwaiter.awaitNextStoragePath();
         }
 
         if (mountPathResolver == null) {
-            errorLogger.logFailure("MountPathResolver is required for operational device listening");
+            errorLogger.logFailure("MountPathResolver is required for operational USB storage listening");
             return Optional.empty();
         }
 
-        Optional<Path> mountPath = mountPathResolver.resolveConfiguredMountPath();
-        if (mountPath.isPresent()) {
-            daemonLogger.logMountPathResolved("configured-path", mountPath.get());
-            return mountPath;
+        Optional<Path> storagePath = mountPathResolver.confirmConfiguredPathAvailable();
+        if (storagePath.isPresent()) {
+            daemonLogger.logStoragePathReady("configured-path", storagePath.get());
+            return storagePath;
         }
 
-        Optional<String> deviceName = deviceNameAwaiter.awaitNextDeviceName();
+        Optional<String> deviceName = usbStorageDeviceAwaiter.awaitNextUsbStorageDevice();
         if (deviceName.isEmpty()) {
             return Optional.empty();
         }
 
-        mountPath = mountPathResolver.resolveMountPath(deviceName.get());
-        mountPath.ifPresent(path -> daemonLogger.logMountPathResolved(deviceName.get(), path));
-        return mountPath;
+        storagePath = mountPathResolver.confirmStoragePathAvailable(deviceName.get());
+        storagePath.ifPresent(path -> daemonLogger.logStoragePathReady(deviceName.get(), path));
+        return storagePath;
     }
 
-    static final class LibUdevDeviceNameAwaiter implements DeviceNameAwaiter {
+    static final class LibUdevDeviceNameAwaiter implements UsbStorageDeviceAwaiter {
         private static final long POLL_INTERVAL_MILLIS = 200L;
 
         private final DaemonLogger daemonLogger;
@@ -206,9 +206,9 @@ public final class DeviceEventListener {
         }
 
         @Override
-        public Optional<String> awaitNextDeviceName() {
+        public Optional<String> awaitNextUsbStorageDevice() {
             if (!osDetector.isLinux()) {
-                errorLogger.logFailure("libudev device listening is only supported on Linux");
+                errorLogger.logFailure("libudev USB storage listening is only supported on Linux");
                 return Optional.empty();
             }
 
@@ -245,9 +245,9 @@ public final class DeviceEventListener {
                     }
 
                     try {
-                        Optional<String> deviceName = resolveRelevantDevice(device);
+                        Optional<String> deviceName = resolveRelevantUsbStorageDevice(device);
                         if (deviceName.isPresent()) {
-                            daemonLogger.logDeviceEventDetected(deviceName.get());
+                            daemonLogger.logUsbStorageDetected(deviceName.get());
                             return deviceName;
                         }
                     } finally {
@@ -256,7 +256,7 @@ public final class DeviceEventListener {
                 }
 
                 Thread.currentThread().interrupt();
-                errorLogger.logFailure("libudev device listening was interrupted");
+                errorLogger.logFailure("libudev USB storage listening was interrupted");
                 return Optional.empty();
             } catch (UnsatisfiedLinkError exception) {
                 errorLogger.logFailure("Failed to load libudev native library", exception);
@@ -271,9 +271,21 @@ public final class DeviceEventListener {
             }
         }
 
-        private Optional<String> resolveRelevantDevice(Pointer device) {
+        private Optional<String> resolveRelevantUsbStorageDevice(Pointer device) {
             String action = nullToEmpty(libUdevFacade.deviceGetAction(device));
             if (!"add".equals(action) && !"bind".equals(action)) {
+                return Optional.empty();
+            }
+
+            String bus = nullToEmpty(libUdevFacade.deviceGetPropertyValue(device, "ID_BUS"));
+            if (!"usb".equalsIgnoreCase(bus)) {
+                return Optional.empty();
+            }
+
+            String devType = nullToEmpty(libUdevFacade.deviceGetPropertyValue(device, "DEVTYPE"));
+            if (!devType.isBlank()
+                    && !"disk".equalsIgnoreCase(devType)
+                    && !"partition".equalsIgnoreCase(devType)) {
                 return Optional.empty();
             }
 

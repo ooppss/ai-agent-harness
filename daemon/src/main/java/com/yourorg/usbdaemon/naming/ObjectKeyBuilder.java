@@ -4,17 +4,17 @@ import java.nio.file.Path;
 import java.util.Objects;
 
 public final class ObjectKeyBuilder {
-    public String build(Path mountPath, Path pcapFile) {
-        Objects.requireNonNull(mountPath, "mountPath");
+    public String build(Path storagePath, Path pcapFile) {
+        Objects.requireNonNull(storagePath, "storagePath");
         Objects.requireNonNull(pcapFile, "pcapFile");
 
-        Path normalizedMountPath = mountPath.normalize();
+        Path normalizedStoragePath = storagePath.normalize();
         Path normalizedPcapFile = pcapFile.normalize();
-        if (!normalizedPcapFile.startsWith(normalizedMountPath)) {
-            throw new IllegalArgumentException("pcap file must be located under mount path: " + normalizedPcapFile);
+        if (!normalizedPcapFile.startsWith(normalizedStoragePath)) {
+            throw new IllegalArgumentException("pcap file must be located under storage path: " + normalizedPcapFile);
         }
 
-        Path relativePath = normalizedMountPath.relativize(normalizedPcapFile);
+        Path relativePath = normalizedStoragePath.relativize(normalizedPcapFile);
         if (relativePath.getNameCount() < 4) {
             throw new IllegalArgumentException("Insufficient path depth for object key: " + relativePath);
         }

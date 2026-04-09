@@ -10,27 +10,27 @@ public final class DaemonLogger {
         logger.info(() -> "Daemon bootstrap started. logPath=" + logPath);
     }
 
-    public void logDeviceEventDetected(String deviceName) {
-        logger.info(() -> "Detected block device event. deviceName=" + deviceName);
+    public void logUsbStorageDetected(String deviceName) {
+        logger.info(() -> "Detected USB storage connection event. deviceName=" + deviceName);
     }
 
-    public void logMountPathRetry(Path configuredPath, String deviceName, int attemptNumber, int maxAttempts) {
-        logger.info(() -> "Retrying mount path resolution. configuredPath=" + configuredPath
+    public void logStoragePathRetry(Path configuredPath, String deviceName, int attemptNumber, int maxAttempts) {
+        logger.info(() -> "Retrying file-browsable storage path confirmation. configuredPath=" + configuredPath
                 + ", deviceName=" + deviceName
                 + ", attempt=" + attemptNumber
                 + ", maxAttempts=" + maxAttempts);
     }
 
-    public void logMountPathResolved(String deviceName, Path mountPath) {
-        logger.info(() -> "Resolved mount path. deviceName=" + deviceName + ", mountPath=" + mountPath);
+    public void logStoragePathReady(String deviceName, Path storagePath) {
+        logger.info(() -> "Confirmed file-browsable storage path. deviceName=" + deviceName + ", storagePath=" + storagePath);
     }
 
-    public void logScanStart(Path mountPath, Path targetPath) {
-        logger.info(() -> "Starting pcap scan. mountPath=" + mountPath + ", targetPath=" + targetPath);
+    public void logScanStart(Path storagePath, Path targetPath) {
+        logger.info(() -> "Starting pcap scan. storagePath=" + storagePath + ", targetPath=" + targetPath);
     }
 
-    public void logScanFinish(Path mountPath, Path targetPath, long fileCount, int scannedDirectoryCount, String status) {
-        logger.info(() -> "Finished pcap scan. mountPath=" + mountPath
+    public void logScanFinish(Path storagePath, Path targetPath, long fileCount, int scannedDirectoryCount, String status) {
+        logger.info(() -> "Finished pcap scan. storagePath=" + storagePath
                 + ", targetPath=" + targetPath
                 + ", fileCount=" + fileCount
                 + ", scannedDirectoryCount=" + scannedDirectoryCount

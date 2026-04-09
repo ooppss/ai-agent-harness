@@ -19,8 +19,8 @@ public final class ErrorLogger {
         logger.log(Level.SEVERE, "Device listener failure: " + message, throwable);
     }
 
-    public void logMountPathFailure(Path configuredPath, String deviceName, String detailMessage) {
-        logger.severe(() -> "Mount path resolution failure. configuredPath=" + configuredPath
+    public void logStoragePathUnavailable(Path configuredPath, String deviceName, String detailMessage) {
+        logger.severe(() -> "File-browsable storage path confirmation failure. configuredPath=" + configuredPath
                 + ", deviceName=" + deviceName
                 + ", detail=" + detailMessage);
     }

@@ -40,27 +40,27 @@ public final class MountPathResolver {
         this.mountTableReader = mountTableReader != null ? mountTableReader : this::readMountEntriesFromSystem;
     }
 
-    public Optional<Path> resolveConfiguredMountPath() {
-        return resolveMountPath(null);
+    public Optional<Path> confirmConfiguredPathAvailable() {
+        return confirmStoragePathAvailable(null);
     }
 
-    public Optional<Path> resolveMountPath(String deviceName) {
+    public Optional<Path> confirmStoragePathAvailable(String deviceName) {
         Path configuredPath = config.getDeviceMountPath().normalize();
         for (int attempt = 0; attempt <= config.getMountPathRetryCount(); attempt++) {
-            Optional<Path> resolvedMountPath = resolveFromMountedFileSystems(configuredPath, deviceName);
-            if (resolvedMountPath.isPresent()) {
-                return resolvedMountPath;
+            Optional<Path> availableStoragePath = resolveFromMountedFileSystems(configuredPath, deviceName);
+            if (availableStoragePath.isPresent()) {
+                return availableStoragePath;
             }
             if (attempt < config.getMountPathRetryCount()) {
-                daemonLogger.logMountPathRetry(configuredPath, deviceName, attempt + 1, config.getMountPathRetryCount() + 1);
+                daemonLogger.logStoragePathRetry(configuredPath, deviceName, attempt + 1, config.getMountPathRetryCount() + 1);
                 sleepBeforeRetry();
             }
         }
 
         if (deviceName == null || deviceName.isBlank()) {
-            errorLogger.logMountPathFailure(configuredPath, null, "Mount path could not be resolved");
+            errorLogger.logStoragePathUnavailable(configuredPath, null, "No file-browsable storage path is available");
         } else {
-            errorLogger.logMountPathFailure(configuredPath, deviceName, "Mount path could not be resolved");
+            errorLogger.logStoragePathUnavailable(configuredPath, deviceName, "No file-browsable storage path is available");
         }
         return Optional.empty();
     }
@@ -94,7 +94,10 @@ public final class MountPathResolver {
         try {
             return List.copyOf(mountTableReader.readMountEntries());
         } catch (IOException exception) {
-            errorLogger.logMountPathFailure(config.getDeviceMountPath(), deviceNameOrUnknown(), "Failed to read mount table from " + PROC_MOUNTS);
+            errorLogger.logStoragePathUnavailable(
+                    config.getDeviceMountPath(),
+                    deviceNameOrUnknown(),
+                    "Failed to read mount table from " + PROC_MOUNTS);
             return List.of();
         }
     }
@@ -180,7 +183,7 @@ public final class MountPathResolver {
             Thread.sleep(config.getMountPathRetryIntervalMillis());
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            errorLogger.logMountPathFailure(config.getDeviceMountPath(), null, "Mount path retry interrupted");
+            errorLogger.logStoragePathUnavailable(config.getDeviceMountPath(), null, "Storage path confirmation retry interrupted");
         }
     }
 

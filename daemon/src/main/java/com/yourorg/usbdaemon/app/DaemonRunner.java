@@ -35,28 +35,28 @@ public final class DaemonRunner {
     }
 
     public RunCycleResult runOnceForResult() {
-        Optional<Path> mountPath = deviceEventListener.awaitNextMountPath();
-        if (mountPath.isEmpty()) {
-            errorLogger.logFailure("No mount path resolved for ingest cycle");
+        Optional<Path> storagePath = deviceEventListener.awaitNextStoragePath();
+        if (storagePath.isEmpty()) {
+            errorLogger.logFailure("No file-browsable USB storage path confirmed for ingest cycle");
             return new RunCycleResult(Optional.empty(), Optional.empty(), Optional.empty());
         }
 
-        ScanResult scanResult = pcapScanner.scan(mountPath.get());
+        ScanResult scanResult = pcapScanner.scan(storagePath.get());
         if (!scanResult.isSuccessful()) {
             errorLogger.logScanFailure(scanResult.getTargetPath(), scanResult.getDetailMessage());
             daemonLogger.logShutdown();
-            return new RunCycleResult(mountPath, Optional.of(scanResult), Optional.empty());
+            return new RunCycleResult(storagePath, Optional.of(scanResult), Optional.empty());
         }
         IngestUploader.UploadBatchResult uploadBatchResult = ingestUploader.upload(scanResult);
         if (!uploadBatchResult.isSuccessful()) {
             errorLogger.logFailure("Upload batch completed with failures: " + uploadBatchResult.detailMessage());
         }
         daemonLogger.logShutdown();
-        return new RunCycleResult(mountPath, Optional.of(scanResult), Optional.of(uploadBatchResult));
+        return new RunCycleResult(storagePath, Optional.of(scanResult), Optional.of(uploadBatchResult));
     }
 
     public record RunCycleResult(
-            Optional<Path> mountPath,
+            Optional<Path> storagePath,
             Optional<ScanResult> scanResult,
             Optional<IngestUploader.UploadBatchResult> uploadBatchResult) {
     }

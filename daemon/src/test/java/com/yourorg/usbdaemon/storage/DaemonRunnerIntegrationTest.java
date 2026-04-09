@@ -27,19 +27,19 @@ class DaemonRunnerIntegrationTest {
 
     @Test
     void runsDeviceScanStorageFlowAndBuildsExpectedUploadRequests() throws Exception {
-        Path mountPath = Files.createDirectory(tempDir.resolve("mount-device"));
-        Path vehicleDirectory = Files.createDirectories(mountPath.resolve("U100/20260327/U100-009"));
+        Path storagePath = Files.createDirectory(tempDir.resolve("mount-device"));
+        Path vehicleDirectory = Files.createDirectories(storagePath.resolve("U100/20260327/U100-009"));
         Path firstPcap = writeFile(vehicleDirectory.resolve("cam_a_1_20260327112330.pcap"));
         Path secondPcap = writeFile(vehicleDirectory.resolve("imu_20260327112331.pcap"));
         writeFile(vehicleDirectory.resolve("notes.txt"));
 
         UploadRecorder uploadRecorder = new UploadRecorder();
-        DaemonRunner daemonRunner = createRunner(mountPath, uploadRecorder);
+        DaemonRunner daemonRunner = createRunner(storagePath, uploadRecorder);
 
         DaemonRunner.RunCycleResult runCycleResult = daemonRunner.runOnceForResult();
 
-        assertTrue(runCycleResult.mountPath().isPresent());
-        assertEquals(mountPath, runCycleResult.mountPath().get());
+        assertTrue(runCycleResult.storagePath().isPresent());
+        assertEquals(storagePath, runCycleResult.storagePath().get());
         assertTrue(runCycleResult.scanResult().isPresent());
         ScanResult scanResult = runCycleResult.scanResult().get();
         assertTrue(scanResult.isSuccessful());
@@ -60,12 +60,12 @@ class DaemonRunnerIntegrationTest {
 
     @Test
     void keepsProcessingFlowAndReturnsSkippedDuplicatesOnLaterCycle() throws Exception {
-        Path mountPath = Files.createDirectory(tempDir.resolve("mount-device"));
-        Path vehicleDirectory = Files.createDirectories(mountPath.resolve("U100/20260327/U100-009"));
+        Path storagePath = Files.createDirectory(tempDir.resolve("mount-device"));
+        Path vehicleDirectory = Files.createDirectories(storagePath.resolve("U100/20260327/U100-009"));
         writeFile(vehicleDirectory.resolve("cam_a_1_20260327112330.pcap"));
 
         UploadRecorder uploadRecorder = new UploadRecorder();
-        DaemonRunner daemonRunner = createRunner(mountPath, uploadRecorder);
+        DaemonRunner daemonRunner = createRunner(storagePath, uploadRecorder);
 
         DaemonRunner.RunCycleResult firstRun = daemonRunner.runOnceForResult();
         DaemonRunner.RunCycleResult secondRun = daemonRunner.runOnceForResult();
@@ -88,13 +88,13 @@ class DaemonRunnerIntegrationTest {
                 uploadRecorder.objectKeys());
     }
 
-    private DaemonRunner createRunner(Path mountPath, UploadRecorder uploadRecorder) {
+    private DaemonRunner createRunner(Path storagePath, UploadRecorder uploadRecorder) {
         AppConfig appConfig = new AppConfig(
                 "http://localhost:9000",
                 "minioadmin",
                 "minioadmin",
                 "ingest-staging",
-                mountPath,
+                storagePath,
                 "",
                 0,
                 0,
@@ -106,8 +106,8 @@ class DaemonRunnerIntegrationTest {
                 daemonLogger,
                 errorLogger,
                 () -> {
-                    daemonLogger.logMountPathResolved("test-stub", mountPath);
-                    return java.util.Optional.of(mountPath);
+                    daemonLogger.logStoragePathReady("test-stub", storagePath);
+                    return java.util.Optional.of(storagePath);
                 });
         PcapScanner pcapScanner = new PcapScanner(appConfig, daemonLogger, errorLogger);
         IngestUploader ingestUploader = new IngestUploader(

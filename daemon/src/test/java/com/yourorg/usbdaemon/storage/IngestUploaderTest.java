@@ -41,12 +41,12 @@ class IngestUploaderTest {
                 new DaemonLogger(),
                 new ErrorLogger());
 
-        Path mountPath = Path.of("/mnt/storage-device");
-        Path pcapFile = mountPath.resolve("U100/20260327/U100-009/cam_a_1_20260327112330.pcap");
+        Path storagePath = Path.of("/mnt/storage-device");
+        Path pcapFile = storagePath.resolve("U100/20260327/U100-009/cam_a_1_20260327112330.pcap");
         ScanResult scanResult = new ScanResult(
                 ScanResult.Status.SUCCESS,
-                mountPath,
-                mountPath.resolve("U100/20260327/U100-009"),
+                storagePath,
+                storagePath.resolve("U100/20260327/U100-009"),
                 List.of(pcapFile),
                 "pcap files found",
                 1);
@@ -97,13 +97,13 @@ class IngestUploaderTest {
                 new DaemonLogger(),
                 new ErrorLogger());
 
-        Path mountPath = Path.of("/mnt/storage-device");
-        Path firstFile = mountPath.resolve("U100/20260327/U100-009/cam_a_1_20260327112330.pcap");
-        Path secondFile = mountPath.resolve("U100/20260327/U100-009/imu_20260327112331.pcap");
+        Path storagePath = Path.of("/mnt/storage-device");
+        Path firstFile = storagePath.resolve("U100/20260327/U100-009/cam_a_1_20260327112330.pcap");
+        Path secondFile = storagePath.resolve("U100/20260327/U100-009/imu_20260327112331.pcap");
         ScanResult scanResult = new ScanResult(
                 ScanResult.Status.SUCCESS,
-                mountPath,
-                mountPath.resolve("U100/20260327/U100-009"),
+                storagePath,
+                storagePath.resolve("U100/20260327/U100-009"),
                 List.of(firstFile, secondFile),
                 "pcap files found",
                 1);
@@ -137,12 +137,12 @@ class IngestUploaderTest {
                 new DaemonLogger(),
                 new ErrorLogger());
 
-        Path mountPath = Path.of("/mnt/storage-device");
-        Path pcapFile = mountPath.resolve("U100/20260327/U100-009/cam_a_1_20260327112330.pcap");
+        Path storagePath = Path.of("/mnt/storage-device");
+        Path pcapFile = storagePath.resolve("U100/20260327/U100-009/cam_a_1_20260327112330.pcap");
         ScanResult scanResult = new ScanResult(
                 ScanResult.Status.SUCCESS,
-                mountPath,
-                mountPath.resolve("U100/20260327/U100-009"),
+                storagePath,
+                storagePath.resolve("U100/20260327/U100-009"),
                 List.of(pcapFile),
                 "pcap files found",
                 1);

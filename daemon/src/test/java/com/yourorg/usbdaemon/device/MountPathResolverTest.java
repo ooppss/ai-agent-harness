@@ -41,39 +41,39 @@ class MountPathResolverTest {
     }
 
     @Test
-    void resolvesMountPathForBareDeviceName() throws Exception {
+    void confirmsStoragePathForBareDeviceName() throws Exception {
         Path configuredPath = tempDir.resolve("mnt");
-        Path mountPath = configuredPath.resolve("usb-01");
-        Files.createDirectories(mountPath);
+        Path storagePath = configuredPath.resolve("usb-01");
+        Files.createDirectories(storagePath);
 
         MountPathResolver resolver = new MountPathResolver(
                 testConfig(configuredPath),
                 new DaemonLogger(),
                 new ErrorLogger(),
-                () -> List.of(new MountPathResolver.MountEntry("/dev/sdb1", mountPath)));
+                () -> List.of(new MountPathResolver.MountEntry("/dev/sdb1", storagePath)));
 
-        Optional<Path> resolved = resolver.resolveMountPath("sdb1");
+        Optional<Path> resolved = resolver.confirmStoragePathAvailable("sdb1");
 
         assertTrue(resolved.isPresent());
-        assertEquals(mountPath, resolved.get());
+        assertEquals(storagePath, resolved.get());
     }
 
     @Test
-    void fallsBackToConfiguredPathCompatibleMountWhenDeviceDoesNotMatch() throws Exception {
+    void fallsBackToConfiguredPathCompatibleStorageWhenDeviceDoesNotMatch() throws Exception {
         Path configuredPath = tempDir.resolve("mnt");
-        Path mountPath = configuredPath.resolve("usb-02");
-        Files.createDirectories(mountPath);
+        Path storagePath = configuredPath.resolve("usb-02");
+        Files.createDirectories(storagePath);
 
         MountPathResolver resolver = new MountPathResolver(
                 testConfig(configuredPath),
                 new DaemonLogger(),
                 new ErrorLogger(),
-                () -> List.of(new MountPathResolver.MountEntry("/dev/sdz1", mountPath)));
+                () -> List.of(new MountPathResolver.MountEntry("/dev/sdz1", storagePath)));
 
-        Optional<Path> resolved = resolver.resolveMountPath("/dev/sdb1");
+        Optional<Path> resolved = resolver.confirmStoragePathAvailable("/dev/sdb1");
 
         assertTrue(resolved.isPresent());
-        assertEquals(mountPath, resolved.get());
+        assertEquals(storagePath, resolved.get());
     }
 
     @Test
@@ -87,7 +87,7 @@ class MountPathResolverTest {
                     throw new IOException("mount table unavailable");
                 });
 
-        Optional<Path> resolved = resolver.resolveConfiguredMountPath();
+        Optional<Path> resolved = resolver.confirmConfiguredPathAvailable();
 
         assertFalse(resolved.isPresent());
     }

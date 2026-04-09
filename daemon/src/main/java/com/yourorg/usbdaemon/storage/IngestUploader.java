@@ -62,7 +62,7 @@ public final class IngestUploader {
         int skippedCount = 0;
         for (Path pcapFile : scanResult.getPcapFiles()) {
             try {
-                String objectKey = objectKeyBuilder.build(scanResult.getMountPath(), pcapFile);
+                String objectKey = objectKeyBuilder.build(scanResult.getStoragePath(), pcapFile);
                 daemonLogger.logObjectKeyBuilt(pcapFile, objectKey);
                 daemonLogger.logUploadStart(pcapFile, config.getIngestBucket(), objectKey);
                 MinioStorageClient.StorageResponse response =

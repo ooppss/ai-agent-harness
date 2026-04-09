@@ -13,7 +13,7 @@ public final class ScanResult {
     }
 
     private final Status status;
-    private final Path mountPath;
+    private final Path storagePath;
     private final Path targetPath;
     private final List<Path> pcapFiles;
     private final String detailMessage;
@@ -21,13 +21,13 @@ public final class ScanResult {
 
     public ScanResult(
             Status status,
-            Path mountPath,
+            Path storagePath,
             Path targetPath,
             List<Path> pcapFiles,
             String detailMessage,
             int scannedDirectoryCount) {
         this.status = Objects.requireNonNull(status, "status");
-        this.mountPath = Objects.requireNonNull(mountPath, "mountPath");
+        this.storagePath = Objects.requireNonNull(storagePath, "storagePath");
         this.targetPath = Objects.requireNonNull(targetPath, "targetPath");
         this.pcapFiles = List.copyOf(pcapFiles);
         this.detailMessage = Objects.requireNonNull(detailMessage, "detailMessage");
@@ -38,8 +38,8 @@ public final class ScanResult {
         return status;
     }
 
-    public Path getMountPath() {
-        return mountPath;
+    public Path getStoragePath() {
+        return storagePath;
     }
 
     public Path getTargetPath() {

@@ -22,25 +22,25 @@ class DeviceEventListenerTest {
     Path tempDir;
 
     @Test
-    void returnsInjectedMountPathThroughTestSeam() {
-        Path injectedMountPath = tempDir.resolve("mounted-device");
+    void returnsInjectedStoragePathThroughTestSeam() {
+        Path injectedStoragePath = tempDir.resolve("mounted-device");
         DeviceEventListener listener = new DeviceEventListener(
                 null,
                 new DaemonLogger(),
                 new ErrorLogger(),
-                () -> Optional.of(injectedMountPath));
+                () -> Optional.of(injectedStoragePath));
 
-        Optional<Path> resolved = listener.awaitNextMountPath();
+        Optional<Path> resolved = listener.awaitNextStoragePath();
 
         assertTrue(resolved.isPresent());
-        assertEquals(injectedMountPath, resolved.get());
+        assertEquals(injectedStoragePath, resolved.get());
     }
 
     @Test
-    void fallsBackFromConfiguredPathLookupToDeviceNameResolution() throws Exception {
+    void fallsBackFromConfiguredPathLookupToUsbStorageResolution() throws Exception {
         Path configuredPath = tempDir.resolve("mnt");
-        Path resolvedMountPath = configuredPath.resolve("usb-01");
-        Files.createDirectories(resolvedMountPath);
+        Path resolvedStoragePath = configuredPath.resolve("usb-01");
+        Files.createDirectories(resolvedStoragePath);
 
         AtomicInteger readCount = new AtomicInteger();
         MountPathResolver resolver = new MountPathResolver(
@@ -51,7 +51,7 @@ class DeviceEventListenerTest {
                     if (readCount.getAndIncrement() == 0) {
                         return List.of();
                     }
-                    return List.of(new MountPathResolver.MountEntry("/dev/sdb1", resolvedMountPath));
+                    return List.of(new MountPathResolver.MountEntry("/dev/sdb1", resolvedStoragePath));
                 });
 
         AtomicBoolean deviceAwaiterCalled = new AtomicBoolean(false);
@@ -65,11 +65,11 @@ class DeviceEventListenerTest {
                     return Optional.of("/dev/sdb1");
                 });
 
-        Optional<Path> resolved = listener.awaitNextMountPath();
+        Optional<Path> resolved = listener.awaitNextStoragePath();
 
         assertTrue(deviceAwaiterCalled.get());
         assertTrue(resolved.isPresent());
-        assertEquals(resolvedMountPath, resolved.get());
+        assertEquals(resolvedStoragePath, resolved.get());
         assertEquals(2, readCount.get());
     }
 
@@ -89,7 +89,7 @@ class DeviceEventListenerTest {
                 null,
                 Optional::<String>empty);
 
-        Optional<Path> resolved = listener.awaitNextMountPath();
+        Optional<Path> resolved = listener.awaitNextStoragePath();
 
         assertFalse(resolved.isPresent());
     }
